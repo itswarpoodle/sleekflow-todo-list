@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: sleekflow-todo-list
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/sleekflow_todo}
+    username: ${DATABASE_USERNAME:sleekflow}
+    password: ${DATABASE_PASSWORD:sleekflow}
+  flyway:
+    enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+server:
+  error:
+    include-message: never

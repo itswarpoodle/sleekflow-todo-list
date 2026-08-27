@@ -22,3 +22,31 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Maven
+target/
+.mvn/timing.properties
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local environment and IDE files
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Generated repository knowledge graph
+graphify-out/
+
+# Local AI tooling
+.agents/
+skills-lock.json
+
+# TypeScript build metadata
+frontend/*.tsbuildinfo
