@@ -8,15 +8,18 @@ afterEach(() => {
 })
 
 test('loads existing TODOs', async () => {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify([
-    {
-      id: '1',
-      name: 'Review the project brief',
-      status: 'NOT_STARTED',
-      createdAt: '2026-08-27T00:00:00Z',
-      updatedAt: '2026-08-27T00:00:00Z',
-    },
-  ]), { status: 200 }))
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    content: [
+      {
+        id: '1',
+        name: 'Review the project brief',
+        status: 'NOT_STARTED',
+        createdAt: '2026-08-27T00:00:00Z',
+        updatedAt: '2026-08-27T00:00:00Z',
+      },
+    ],
+    totalElements: 1,
+  }), { status: 200 }))
 
   render(<App />)
 
@@ -26,7 +29,7 @@ test('loads existing TODOs', async () => {
 
 test('creates a TODO through the API', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ content: [], totalElements: 0 }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       id: '2',
       name: 'Prepare the live demo',

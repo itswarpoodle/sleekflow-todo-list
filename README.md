@@ -40,7 +40,7 @@ Open `http://localhost:5173`. Vite proxies `/api` requests to Spring Boot on por
 
 | Method | Path | Behavior |
 | --- | --- | --- |
-| `GET` | `/api/todos` | Lists active TODOs, including archived TODOs |
+| `GET` | `/api/todos` | Lists active TODOs in a bounded page, including archived TODOs |
 | `GET` | `/api/todos/{id}` | Retrieves one active TODO |
 | `POST` | `/api/todos` | Creates a TODO |
 | `PUT` | `/api/todos/{id}` | Replaces the editable TODO fields |
@@ -51,6 +51,8 @@ Names are required. Descriptions and due dates are optional. A create request de
 Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot be moved to `IN_PROGRESS`.
 
 Recurring TODOs use a `recurrence` object. `DAILY`, `WEEKLY`, and `MONTHLY` are canonical one-unit rules; `CUSTOM` requires a positive `interval` and a `unit` of `DAYS`, `WEEKS`, or `MONTHS`. A recurring TODO requires a due date. Its first transition to `COMPLETED` creates one `NOT_STARTED` successor with a calendar-adjusted due date and a `previousOccurrenceId` link. Optimistic locking plus a unique database constraint keeps competing or repeated completion requests from creating duplicate successors.
+
+The list endpoint accepts zero-based `page` and `size` parameters. Size defaults to 20 and is capped at 100. Optional `status`, `priority`, `dueDate`, and `blocked` parameters can be combined. Sorting is deliberately limited to `dueDate`, `priority`, `status`, or `name` through `sort`, with `direction=asc|desc`; every order includes an ID tie-breaker so rows do not drift between pages. Responses contain `content`, `page`, `size`, `totalElements`, and `totalPages`.
 
 The request and response schemas and enum values are available through Swagger UI. Runtime errors use a consistent envelope containing `status`, `code`, `message`, `path`, and field-specific validation errors.
 

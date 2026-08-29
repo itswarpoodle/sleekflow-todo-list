@@ -8,6 +8,11 @@ type Todo = {
   updatedAt: string
 }
 
+type TodoPage = {
+  content: Todo[]
+  totalElements: number
+}
+
 const statusLabels: Record<Todo['status'], string> = {
   NOT_STARTED: 'Not started',
   IN_PROGRESS: 'In progress',
@@ -17,6 +22,7 @@ const statusLabels: Record<Todo['status'], string> = {
 
 export default function App() {
   const [todos, setTodos] = useState<Todo[]>([])
+  const [totalTodos, setTotalTodos] = useState(0)
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -27,7 +33,9 @@ export default function App() {
       try {
         const response = await fetch('/api/todos')
         if (!response.ok) throw new Error('The TODO list could not be loaded.')
-        setTodos(await response.json())
+        const page: TodoPage = await response.json()
+        setTodos(page.content)
+        setTotalTodos(page.totalElements)
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Unexpected error')
       } finally {
@@ -55,6 +63,7 @@ export default function App() {
 
       const created: Todo = await response.json()
       setTodos((current) => [created, ...current])
+      setTotalTodos((current) => current + 1)
       setName('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unexpected error')
@@ -99,7 +108,7 @@ export default function App() {
       <section className="list-section" aria-labelledby="list-heading">
         <div className="list-heading">
           <h2 id="list-heading">TODOs</h2>
-          <span>{todos.length} total</span>
+          <span>{totalTodos} total</span>
         </div>
 
         {loading ? (

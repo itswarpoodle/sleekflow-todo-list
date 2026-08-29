@@ -15,7 +15,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -27,6 +29,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -104,8 +107,12 @@ class TodoApiIntegrationTest {
 
         mockMvc.perform(get("/api/todos"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id").value(id));
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(id))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
@@ -171,9 +178,9 @@ class TodoApiIntegrationTest {
 
         mockMvc.perform(get("/api/todos"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id").value(archivedId))
-                .andExpect(jsonPath("$[0].status").value("ARCHIVED"));
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(archivedId))
+                .andExpect(jsonPath("$.content[0].status").value("ARCHIVED"));
 
         var deleted = repository.findById(UUID.fromString(deletedId)).orElseThrow();
         org.assertj.core.api.Assertions.assertThat(deleted.deletedAt()).isNotNull();
@@ -529,6 +536,155 @@ class TodoApiIntegrationTest {
     }
 
     @Test
+    void filtersByStatusPriorityDueDateAndBlockedState() throws Exception {
+        String incompleteId = createTodo("""
+                {"name":"Incomplete prerequisite","priority":"LOW","dueDate":"2027-01-10"}
+                """);
+        createTodo("""
+                {"name":"Completed match","status":"COMPLETED","priority":"HIGH","dueDate":"2027-02-20"}
+                """);
+        String blockedId = createTodo("""
+                {
+                  "name":"Blocked match",
+                  "priority":"HIGH",
+                  "dueDate":"2027-02-20",
+                  "dependencyIds":["%s"]
+                }
+                """.formatted(incompleteId));
+
+        mockMvc.perform(get("/api/todos").param("status", "COMPLETED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].name").value("Completed match"));
+
+        mockMvc.perform(get("/api/todos")
+                        .param("priority", "HIGH")
+                        .param("dueDate", "2027-02-20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)));
+
+        mockMvc.perform(get("/api/todos").param("blocked", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(blockedId))
+                .andExpect(jsonPath("$.content[0].blocked").value(true));
+
+        mockMvc.perform(get("/api/todos").param("blocked", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[*].blocked", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(false))));
+    }
+
+    @Test
+    void sortsEveryAllowedFieldUsingDomainOrderAndNullsLast() throws Exception {
+        createTodo("""
+                {"name":"alpha","status":"NOT_STARTED","priority":"LOW"}
+                """);
+        createTodo("""
+                {"name":"Bravo","status":"IN_PROGRESS","priority":"MEDIUM","dueDate":"2027-01-10"}
+                """);
+        createTodo("""
+                {"name":"charlie","status":"ARCHIVED","priority":"HIGH","dueDate":"2027-03-10"}
+                """);
+
+        org.assertj.core.api.Assertions.assertThat(listNames("name", "asc"))
+                .containsExactly("alpha", "Bravo", "charlie");
+        org.assertj.core.api.Assertions.assertThat(listNames("priority", "desc"))
+                .containsExactly("charlie", "Bravo", "alpha");
+        org.assertj.core.api.Assertions.assertThat(listNames("status", "asc"))
+                .containsExactly("alpha", "Bravo", "charlie");
+        org.assertj.core.api.Assertions.assertThat(listNames("dueDate", "asc"))
+                .containsExactly("Bravo", "charlie", "alpha");
+    }
+
+    @Test
+    void paginatesWithStableNonOverlappingResults() throws Exception {
+        IntStream.rangeClosed(1, 5).forEach(index -> {
+            try {
+                createTodo("""
+                        {"name":"Same sort key"}
+                        """);
+            } catch (Exception exception) {
+                throw new AssertionError(exception);
+            }
+        });
+
+        var firstPage = listIds(0, 2, "name", "asc");
+        var secondPage = listIds(1, 2, "name", "asc");
+
+        org.assertj.core.api.Assertions.assertThat(firstPage).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(secondPage).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(new HashSet<>(firstPage))
+                .doesNotContainAnyElementsOf(secondPage);
+        org.assertj.core.api.Assertions.assertThat(listIds(0, 2, "name", "asc"))
+                .containsExactlyElementsOf(firstPage);
+
+        mockMvc.perform(get("/api/todos").param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(2))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.totalPages").value(3))
+                .andExpect(jsonPath("$.content", hasSize(2)));
+    }
+
+    @Test
+    void rejectsUnboundedPaginationAndUnknownSorts() throws Exception {
+        mockMvc.perform(get("/api/todos").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PAGINATION"));
+        mockMvc.perform(get("/api/todos").param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PAGINATION"));
+        mockMvc.perform(get("/api/todos").param("sort", "createdAt"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SORT"));
+        mockMvc.perform(get("/api/todos").param("sort", "name").param("direction", "sideways"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SORT"));
+    }
+
+    @Test
+    void keepsAFilteredPageBoundedOnTenThousandRowsAndUsesTheStatusIndex() {
+        jdbcTemplate.update("""
+                INSERT INTO todos (id, name, status, version, created_at, updated_at, priority, due_date)
+                SELECT md5('scale-' || series)::uuid,
+                       'Scale TODO ' || series,
+                       CASE WHEN series % 100 = 0 THEN 'IN_PROGRESS' ELSE 'NOT_STARTED' END,
+                       0,
+                       clock_timestamp(),
+                       clock_timestamp(),
+                       CASE WHEN series % 3 = 0 THEN 'HIGH' WHEN series % 3 = 1 THEN 'LOW' ELSE 'MEDIUM' END,
+                       DATE '2027-01-01' + (series % 365)
+                FROM generate_series(1, 10000) AS series
+                """);
+        jdbcTemplate.execute("ANALYZE todos");
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
+                mockMvc.perform(get("/api/todos")
+                                .param("status", "IN_PROGRESS")
+                                .param("page", "0")
+                                .param("size", "50"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.content", hasSize(50)))
+                        .andExpect(jsonPath("$.totalElements").value(100))
+                        .andExpect(jsonPath("$.totalPages").value(2))
+                        .andExpect(jsonPath("$.content[*].status",
+                                org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is("IN_PROGRESS"))))
+        );
+
+        var plan = jdbcTemplate.queryForList("""
+                EXPLAIN SELECT id
+                FROM todos
+                WHERE deleted_at IS NULL AND status = 'IN_PROGRESS'
+                ORDER BY id
+                LIMIT 50
+                """, String.class);
+        org.assertj.core.api.Assertions.assertThat(String.join("\n", plan))
+                .contains("todos_active_status_idx");
+    }
+
+    @Test
     void publishesEveryCrudOperationInOpenApi() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -626,5 +782,25 @@ class TodoApiIntegrationTest {
                 .andReturn();
 
         return JsonPath.read(response.getResponse().getContentAsString(), "$.id");
+    }
+
+    private List<String> listNames(String sort, String direction) throws Exception {
+        var response = mockMvc.perform(get("/api/todos")
+                        .param("sort", sort)
+                        .param("direction", direction))
+                .andExpect(status().isOk())
+                .andReturn();
+        return JsonPath.read(response.getResponse().getContentAsString(), "$.content[*].name");
+    }
+
+    private List<String> listIds(int page, int size, String sort, String direction) throws Exception {
+        var response = mockMvc.perform(get("/api/todos")
+                        .param("page", Integer.toString(page))
+                        .param("size", Integer.toString(size))
+                        .param("sort", sort)
+                        .param("direction", direction))
+                .andExpect(status().isOk())
+                .andReturn();
+        return JsonPath.read(response.getResponse().getContentAsString(), "$.content[*].id");
     }
 }

@@ -2,8 +2,10 @@ package com.sleekflow.todo.todos.controller;
 
 import com.sleekflow.todo.todos.dto.ApiErrorResponse;
 import com.sleekflow.todo.todos.dto.CreateTodoRequest;
+import com.sleekflow.todo.todos.dto.PageResponse;
 import com.sleekflow.todo.todos.dto.TodoResponse;
 import com.sleekflow.todo.todos.dto.UpdateTodoRequest;
+import com.sleekflow.todo.todos.model.Todo;
 import com.sleekflow.todo.todos.service.TodoService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -18,10 +20,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
-import java.util.List;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @RestController
@@ -36,8 +39,19 @@ public class TodoController {
 
     @GetMapping
     @ApiResponse(responseCode = "200", description = "Active TODOs returned")
-    public List<TodoResponse> findAll() {
-        return service.findAll().stream().map(TodoResponse::from).toList();
+    public PageResponse<TodoResponse> findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Todo.Status status,
+            @RequestParam(required = false) Todo.Priority priority,
+            @RequestParam(required = false) LocalDate dueDate,
+            @RequestParam(required = false) Boolean blocked,
+            @RequestParam(required = false) String sort,
+            @RequestParam(defaultValue = "asc") String direction
+    ) {
+        var todos = service.findAll(page, size, status, priority, dueDate, blocked, sort, direction)
+                .map(TodoResponse::from);
+        return PageResponse.from(todos);
     }
 
     @GetMapping("/{id}")
