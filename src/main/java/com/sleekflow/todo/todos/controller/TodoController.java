@@ -74,7 +74,8 @@ public class TodoController {
                 request.dueDate(),
                 request.status(),
                 request.priority(),
-                request.dependencyIds()
+                request.dependencyIds(),
+                request.recurrence()
         ));
         return ResponseEntity.created(URI.create("/api/todos/" + created.id())).body(created);
     }
@@ -109,7 +110,8 @@ public class TodoController {
                 request.dueDate(),
                 request.status(),
                 request.priority(),
-                request.dependencyIds()
+                request.dependencyIds(),
+                request.recurrence()
         ));
     }
 

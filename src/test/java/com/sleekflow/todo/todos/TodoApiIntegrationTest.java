@@ -15,10 +15,16 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
-import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -56,6 +62,7 @@ class TodoApiIntegrationTest {
     @BeforeEach
     void clearTodos() {
         jdbcTemplate.update("DELETE FROM todo_dependencies");
+        jdbcTemplate.update("UPDATE todos SET previous_occurrence_id = NULL");
         repository.deleteAllInBatch();
     }
 
@@ -82,6 +89,8 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.priority").value("HIGH"))
                 .andExpect(jsonPath("$.dependencyIds", hasSize(0)))
                 .andExpect(jsonPath("$.blocked").value(false))
+                .andExpect(jsonPath("$.recurrence").value(nullValue()))
+                .andExpect(jsonPath("$.previousOccurrenceId").value(nullValue()))
                 .andExpect(jsonPath("$.createdAt", notNullValue()))
                 .andExpect(jsonPath("$.updatedAt", notNullValue()))
                 .andReturn();
@@ -362,6 +371,164 @@ class TodoApiIntegrationTest {
     }
 
     @Test
+    void createsNextOccurrenceForEverySupportedRecurrence() throws Exception {
+        assertNextOccurrence(
+                "Daily leap-year task",
+                "2028-02-28",
+                "{\"frequency\":\"DAILY\"}",
+                LocalDate.parse("2028-02-29"),
+                "DAILY",
+                1,
+                "DAYS"
+        );
+        assertNextOccurrence(
+                "Weekly task",
+                "2027-04-05",
+                "{\"frequency\":\"WEEKLY\"}",
+                LocalDate.parse("2027-04-12"),
+                "WEEKLY",
+                1,
+                "WEEKS"
+        );
+        assertNextOccurrence(
+                "Monthly month-end task",
+                "2027-01-31",
+                "{\"frequency\":\"MONTHLY\"}",
+                LocalDate.parse("2027-02-28"),
+                "MONTHLY",
+                1,
+                "MONTHS"
+        );
+        assertNextOccurrence(
+                "Custom task",
+                "2027-01-31",
+                "{\"frequency\":\"CUSTOM\",\"interval\":2,\"unit\":\"MONTHS\"}",
+                LocalDate.parse("2027-03-31"),
+                "CUSTOM",
+                2,
+                "MONTHS"
+        );
+    }
+
+    @Test
+    void rejectsIncompleteAndConflictingRecurrenceRules() throws Exception {
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"No due date",
+                                  "recurrence":{"frequency":"DAILY"}
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_RECURRENCE"));
+
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Incomplete custom rule",
+                                  "dueDate":"2027-01-01",
+                                  "recurrence":{"frequency":"CUSTOM","interval":2}
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_RECURRENCE"));
+
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Conflicting daily rule",
+                                  "dueDate":"2027-01-01",
+                                  "recurrence":{"frequency":"DAILY","interval":2,"unit":"DAYS"}
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_RECURRENCE"));
+    }
+
+    @Test
+    void recompletingAnOccurrenceDoesNotCreateAnotherSuccessor() throws Exception {
+        String id = createTodo("""
+                {
+                  "name":"Idempotent recurrence",
+                  "dueDate":"2027-06-01",
+                  "recurrence":{"frequency":"DAILY"}
+                }
+                """);
+
+        updateRecurringTodo(id, "NOT_STARTED");
+        updateRecurringTodo(id, "COMPLETED");
+        updateRecurringTodo(id, "NOT_STARTED");
+        updateRecurringTodo(id, "COMPLETED");
+
+        long successors = repository.findAll().stream()
+                .filter(todo -> UUID.fromString(id).equals(todo.previousOccurrenceId()))
+                .count();
+        org.assertj.core.api.Assertions.assertThat(successors).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentCompletionCreatesExactlyOneSuccessor() throws Exception {
+        String id = createTodo("""
+                {
+                  "name":"Concurrent recurrence",
+                  "dueDate":"2027-08-15",
+                  "recurrence":{"frequency":"WEEKLY"}
+                }
+                """);
+        int requestCount = 8;
+        var ready = new CountDownLatch(requestCount);
+        var start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(requestCount);
+
+        try {
+            var futures = IntStream.range(0, requestCount)
+                    .mapToObj(ignored -> executor.submit(() -> {
+                        ready.countDown();
+                        start.await(10, TimeUnit.SECONDS);
+                        return mockMvc.perform(put("/api/todos/{id}", id)
+                                        .contentType("application/json")
+                                        .content("""
+                                                {
+                                                  "name":"Concurrent recurrence",
+                                                  "dueDate":"2027-08-15",
+                                                  "status":"COMPLETED",
+                                                  "priority":"MEDIUM",
+                                                  "recurrence":{"frequency":"WEEKLY"}
+                                                }
+                                                """))
+                                .andReturn()
+                                .getResponse()
+                                .getStatus();
+                    }))
+                    .toList();
+
+            org.assertj.core.api.Assertions.assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            List<Integer> statuses = futures.stream().map(future -> {
+                try {
+                    return future.get(20, TimeUnit.SECONDS);
+                } catch (Exception exception) {
+                    throw new AssertionError(exception);
+                }
+            }).toList();
+
+            org.assertj.core.api.Assertions.assertThat(statuses)
+                    .contains(200)
+                    .allMatch(code -> code == 200 || code == 409);
+            org.assertj.core.api.Assertions.assertThat(
+                    repository.findAll().stream()
+                            .filter(todo -> UUID.fromString(id).equals(todo.previousOccurrenceId()))
+                            .count()
+            ).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void publishesEveryCrudOperationInOpenApi() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -381,7 +548,74 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].delete.responses['404']").exists())
                 .andExpect(jsonPath("$.components.schemas.ApiErrorResponse").exists())
                 .andExpect(jsonPath("$.components.schemas.CreateTodoRequest.properties.dependencyIds").exists())
-                .andExpect(jsonPath("$.components.schemas.TodoResponse.properties.blocked").exists());
+                .andExpect(jsonPath("$.components.schemas.CreateTodoRequest.properties.recurrence").exists())
+                .andExpect(jsonPath("$.components.schemas.TodoResponse.properties.blocked").exists())
+                .andExpect(jsonPath("$.components.schemas.TodoResponse.properties.previousOccurrenceId").exists())
+                .andExpect(jsonPath("$.components.schemas.RecurrenceRule").exists());
+    }
+
+    private void assertNextOccurrence(
+            String name,
+            String dueDate,
+            String recurrence,
+            LocalDate expectedNextDate,
+            String expectedFrequency,
+            int expectedInterval,
+            String expectedUnit
+    ) throws Exception {
+        String id = createTodo("""
+                {
+                  "name":"%s",
+                  "dueDate":"%s",
+                  "recurrence":%s
+                }
+                """.formatted(name, dueDate, recurrence));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"%s",
+                                  "dueDate":"%s",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM",
+                                  "recurrence":%s
+                                }
+                                """.formatted(name, dueDate, recurrence)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.recurrence.frequency").value(expectedFrequency));
+
+        var successor = repository.findByPreviousOccurrenceId(UUID.fromString(id)).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(successor.dueDate()).isEqualTo(expectedNextDate);
+        org.assertj.core.api.Assertions.assertThat(successor.status()).isEqualTo(com.sleekflow.todo.todos.model.Todo.Status.NOT_STARTED);
+
+        mockMvc.perform(get("/api/todos/{id}", successor.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.previousOccurrenceId").value(id))
+                .andExpect(jsonPath("$.dueDate").value(expectedNextDate.toString()))
+                .andExpect(jsonPath("$.recurrence.frequency").value(expectedFrequency))
+                .andExpect(jsonPath("$.recurrence.interval").value(expectedInterval))
+                .andExpect(jsonPath("$.recurrence.unit").value(expectedUnit));
+    }
+
+    private void updateRecurringTodo(String id, String statusValue) throws Exception {
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .contentType("application/json")
+                        .content(recurringUpdateBody(statusValue)))
+                .andExpect(status().isOk());
+    }
+
+    private String recurringUpdateBody(String statusValue) {
+        return """
+                {
+                  "name":"Idempotent recurrence",
+                  "dueDate":"2027-06-01",
+                  "status":"%s",
+                  "priority":"MEDIUM",
+                  "recurrence":{"frequency":"DAILY"}
+                }
+                """.formatted(statusValue);
     }
 
     private String createTodo(String requestBody) throws Exception {

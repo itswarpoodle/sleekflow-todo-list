@@ -1,6 +1,7 @@
 package com.sleekflow.todo.todos.dto;
 
 import com.sleekflow.todo.todos.model.Todo;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -20,6 +21,7 @@ public record UpdateTodoRequest(
         Todo.Status status,
         @NotNull(message = "Priority is required")
         Todo.Priority priority,
-        Set<UUID> dependencyIds
+        Set<UUID> dependencyIds,
+        @Valid RecurrenceRule recurrence
 ) {
 }

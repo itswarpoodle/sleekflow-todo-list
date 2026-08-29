@@ -40,6 +40,33 @@ public class Todo {
         HIGH
     }
 
+    public enum RecurrenceFrequency {
+        DAILY,
+        WEEKLY,
+        MONTHLY,
+        CUSTOM
+    }
+
+    public enum RecurrenceUnit {
+        DAYS,
+        WEEKS,
+        MONTHS
+    }
+
+    public record Recurrence(
+            RecurrenceFrequency frequency,
+            int interval,
+            RecurrenceUnit unit
+    ) {
+        public LocalDate nextDueDate(LocalDate dueDate) {
+            return switch (unit) {
+                case DAYS -> dueDate.plusDays(interval);
+                case WEEKS -> dueDate.plusWeeks(interval);
+                case MONTHS -> dueDate.plusMonths(interval);
+            };
+        }
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -74,6 +101,20 @@ public class Todo {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recurrence_frequency", length = 16)
+    private RecurrenceFrequency recurrenceFrequency;
+
+    @Column(name = "recurrence_interval")
+    private Integer recurrenceInterval;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recurrence_unit", length = 16)
+    private RecurrenceUnit recurrenceUnit;
+
+    @Column(name = "previous_occurrence_id", updatable = false)
+    private UUID previousOccurrenceId;
+
     @ManyToMany
     @JoinTable(
             name = "todo_dependencies",
@@ -90,13 +131,15 @@ public class Todo {
             String description,
             LocalDate dueDate,
             Status status,
-            Priority priority
+            Priority priority,
+            Recurrence recurrence
     ) {
         this.name = name;
         this.description = description;
         this.dueDate = dueDate;
         this.status = status;
         this.priority = priority;
+        setRecurrence(recurrence);
     }
 
     public void update(
@@ -104,13 +147,15 @@ public class Todo {
             String description,
             LocalDate dueDate,
             Status status,
-            Priority priority
+            Priority priority,
+            Recurrence recurrence
     ) {
         this.name = name;
         this.description = description;
         this.dueDate = dueDate;
         this.status = status;
         this.priority = priority;
+        setRecurrence(recurrence);
     }
 
     public void softDelete() {
@@ -120,6 +165,25 @@ public class Todo {
     public void replaceDependencies(Collection<Todo> dependencies) {
         this.dependencies.clear();
         this.dependencies.addAll(dependencies);
+    }
+
+    public Todo nextOccurrence() {
+        var next = new Todo(
+                name,
+                description,
+                recurrence().nextDueDate(dueDate),
+                Status.NOT_STARTED,
+                priority,
+                recurrence()
+        );
+        next.previousOccurrenceId = id;
+        return next;
+    }
+
+    private void setRecurrence(Recurrence recurrence) {
+        recurrenceFrequency = recurrence == null ? null : recurrence.frequency();
+        recurrenceInterval = recurrence == null ? null : recurrence.interval();
+        recurrenceUnit = recurrence == null ? null : recurrence.unit();
     }
 
     @PrePersist
@@ -172,5 +236,15 @@ public class Todo {
 
     public Set<Todo> dependencies() {
         return Collections.unmodifiableSet(dependencies);
+    }
+
+    public Recurrence recurrence() {
+        return recurrenceFrequency == null
+                ? null
+                : new Recurrence(recurrenceFrequency, recurrenceInterval, recurrenceUnit);
+    }
+
+    public UUID previousOccurrenceId() {
+        return previousOccurrenceId;
     }
 }

@@ -19,6 +19,8 @@ public record TodoResponse(
         Todo.Priority priority,
         Set<UUID> dependencyIds,
         boolean blocked,
+        RecurrenceRule recurrence,
+        UUID previousOccurrenceId,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -37,6 +39,8 @@ public record TodoResponse(
                         .collect(Collectors.toCollection(LinkedHashSet::new)),
                 todo.dependencies().stream()
                         .anyMatch(dependency -> dependency.status() != Todo.Status.COMPLETED),
+                RecurrenceRule.from(todo.recurrence()),
+                todo.previousOccurrenceId(),
                 todo.createdAt(),
                 todo.updatedAt()
         );

@@ -1,6 +1,7 @@
 package com.sleekflow.todo.todos.dto;
 
 import com.sleekflow.todo.todos.model.Todo;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -17,6 +18,7 @@ public record CreateTodoRequest(
         LocalDate dueDate,
         Todo.Status status,
         Todo.Priority priority,
-        Set<UUID> dependencyIds
+        Set<UUID> dependencyIds,
+        @Valid RecurrenceRule recurrence
 ) {
 }

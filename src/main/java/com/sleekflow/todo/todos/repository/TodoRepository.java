@@ -18,4 +18,8 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
     Optional<Todo> findByIdAndDeletedAtIsNull(UUID id);
 
     List<Todo> findAllByIdInAndDeletedAtIsNull(Collection<UUID> ids);
+
+    boolean existsByPreviousOccurrenceId(UUID previousOccurrenceId);
+
+    Optional<Todo> findByPreviousOccurrenceId(UUID previousOccurrenceId);
 }

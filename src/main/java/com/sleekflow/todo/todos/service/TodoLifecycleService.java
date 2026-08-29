@@ -1,11 +1,13 @@
 package com.sleekflow.todo.todos.service;
 
+import com.sleekflow.todo.todos.dto.RecurrenceRule;
 import com.sleekflow.todo.todos.exception.TodoRuleViolationException;
 import com.sleekflow.todo.todos.model.Todo;
 import com.sleekflow.todo.todos.repository.TodoRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Comparator;
@@ -72,6 +74,48 @@ public class TodoLifecycleService {
                     "A blocked TODO cannot be moved to IN_PROGRESS"
             );
         }
+    }
+
+    public Todo.Recurrence normalizeRecurrence(RecurrenceRule rule, LocalDate dueDate) {
+        if (rule == null) {
+            return null;
+        }
+        if (dueDate == null) {
+            throw invalidRecurrence("A recurring TODO requires a due date");
+        }
+        if (rule.frequency() == null) {
+            throw invalidRecurrence("Recurrence frequency is required");
+        }
+
+        return switch (rule.frequency()) {
+            case DAILY -> standardRecurrence(rule, 1, Todo.RecurrenceUnit.DAYS);
+            case WEEKLY -> standardRecurrence(rule, 1, Todo.RecurrenceUnit.WEEKS);
+            case MONTHLY -> standardRecurrence(rule, 1, Todo.RecurrenceUnit.MONTHS);
+            case CUSTOM -> customRecurrence(rule);
+        };
+    }
+
+    private Todo.Recurrence standardRecurrence(
+            RecurrenceRule rule,
+            int interval,
+            Todo.RecurrenceUnit unit
+    ) {
+        if ((rule.interval() != null && rule.interval() != interval)
+                || (rule.unit() != null && rule.unit() != unit)) {
+            throw invalidRecurrence(rule.frequency() + " recurrence must use interval 1 " + unit);
+        }
+        return new Todo.Recurrence(rule.frequency(), interval, unit);
+    }
+
+    private Todo.Recurrence customRecurrence(RecurrenceRule rule) {
+        if (rule.interval() == null || rule.interval() <= 0 || rule.unit() == null) {
+            throw invalidRecurrence("Custom recurrence requires a positive interval and unit");
+        }
+        return new Todo.Recurrence(rule.frequency(), rule.interval(), rule.unit());
+    }
+
+    private TodoRuleViolationException invalidRecurrence(String message) {
+        return new TodoRuleViolationException(HttpStatus.BAD_REQUEST, "INVALID_RECURRENCE", message);
     }
 
     private boolean isBlocked(Collection<Todo> dependencies) {

@@ -1,5 +1,6 @@
 package com.sleekflow.todo.todos.service;
 
+import com.sleekflow.todo.todos.dto.RecurrenceRule;
 import com.sleekflow.todo.todos.exception.TodoNotFoundException;
 import com.sleekflow.todo.todos.model.Todo;
 import com.sleekflow.todo.todos.repository.TodoRepository;
@@ -39,18 +40,21 @@ public class TodoService {
             LocalDate dueDate,
             Todo.Status status,
             Todo.Priority priority,
-            Set<UUID> dependencyIds
+            Set<UUID> dependencyIds,
+            RecurrenceRule recurrenceRule
     ) {
         var effectiveStatus = status == null ? Todo.Status.NOT_STARTED : status;
         var dependencies = lifecycle.resolveDependencies(null, dependencyIds);
         lifecycle.validateStatus(effectiveStatus, dependencies);
+        var recurrence = lifecycle.normalizeRecurrence(recurrenceRule, dueDate);
 
         var todo = new Todo(
                 name.trim(),
                 normalizeDescription(description),
                 dueDate,
                 effectiveStatus,
-                priority == null ? Todo.Priority.MEDIUM : priority
+                priority == null ? Todo.Priority.MEDIUM : priority,
+                recurrence
         );
         todo.replaceDependencies(dependencies);
         return repository.save(todo);
@@ -64,13 +68,25 @@ public class TodoService {
             LocalDate dueDate,
             Todo.Status status,
             Todo.Priority priority,
-            Set<UUID> dependencyIds
+            Set<UUID> dependencyIds,
+            RecurrenceRule recurrenceRule
     ) {
         var todo = findActive(id);
+        var previousStatus = todo.status();
         var dependencies = lifecycle.resolveDependencies(id, dependencyIds);
         lifecycle.validateUpdate(todo, dependencies, status);
-        todo.update(name.trim(), normalizeDescription(description), dueDate, status, priority);
+        var recurrence = lifecycle.normalizeRecurrence(recurrenceRule, dueDate);
+        todo.update(name.trim(), normalizeDescription(description), dueDate, status, priority, recurrence);
         todo.replaceDependencies(dependencies);
+
+        if (previousStatus != Todo.Status.COMPLETED
+                && status == Todo.Status.COMPLETED
+                && recurrence != null
+                && !repository.existsByPreviousOccurrenceId(todo.id())) {
+            var nextOccurrence = todo.nextOccurrence();
+            nextOccurrence.replaceDependencies(dependencies);
+            repository.save(nextOccurrence);
+        }
         return todo;
     }
 
