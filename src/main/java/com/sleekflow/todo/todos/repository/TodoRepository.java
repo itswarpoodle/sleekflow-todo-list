@@ -14,8 +14,18 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Persistence operations for active and historical TODOs. Normal reads explicitly
+ * exclude rows with a deletion timestamp; the base repository remains available for
+ * retention checks and administrative recovery.
+ */
 public interface TodoRepository extends JpaRepository<Todo, UUID> {
 
+    /**
+     * Applies optional filters and domain-aware sorting in PostgreSQL. Boolean flags
+     * distinguish an omitted filter from the non-null placeholder values required by
+     * JPQL, and the final ID ordering keeps page boundaries stable when values tie.
+     */
     @Query(
             value = """
                     SELECT todo

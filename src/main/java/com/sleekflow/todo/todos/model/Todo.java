@@ -23,6 +23,10 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Persistent TODO aggregate. Cross-TODO rules live in {@code TodoLifecycleService};
+ * this class owns state changes that affect one TODO and its next occurrence.
+ */
 @Entity
 @Table(name = "todos")
 public class Todo {
@@ -58,6 +62,10 @@ public class Todo {
             int interval,
             RecurrenceUnit unit
     ) {
+        /**
+         * Uses calendar arithmetic so month-end dates follow {@link LocalDate}
+         * semantics instead of assuming that every month has a fixed length.
+         */
         public LocalDate nextDueDate(LocalDate dueDate) {
             return switch (unit) {
                 case DAYS -> dueDate.plusDays(interval);
@@ -158,6 +166,9 @@ public class Todo {
         setRecurrence(recurrence);
     }
 
+    /**
+     * Retains the row and records when it stopped belonging to active views.
+     */
     public void softDelete() {
         deletedAt = Instant.now();
     }
@@ -167,6 +178,10 @@ public class Todo {
         this.dependencies.addAll(dependencies);
     }
 
+    /**
+     * Copies the recurring work into a fresh NOT_STARTED TODO linked to this one.
+     * The service copies dependencies after constructing the occurrence.
+     */
     public Todo nextOccurrence() {
         var next = new Todo(
                 name,

@@ -16,6 +16,10 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Applies rules that involve more than one TODO, such as dependency validation,
+ * cycle detection, blocked transitions, and recurrence normalization.
+ */
 @Service
 public class TodoLifecycleService {
 
@@ -25,6 +29,10 @@ public class TodoLifecycleService {
         this.repository = repository;
     }
 
+    /**
+     * Resolves only active dependencies and reports every missing ID together so
+     * callers receive one useful validation response instead of failing repeatedly.
+     */
     public Set<Todo> resolveDependencies(UUID todoId, Set<UUID> dependencyIds) {
         var requestedIds = dependencyIds == null ? Set.<UUID>of() : dependencyIds;
 
@@ -55,6 +63,9 @@ public class TodoLifecycleService {
         return new LinkedHashSet<>(dependencies);
     }
 
+    /**
+     * Validates dependency changes before the aggregate is mutated.
+     */
     public void validateUpdate(Todo todo, Collection<Todo> dependencies, Todo.Status status) {
         if (dependencies.stream().anyMatch(dependency -> reaches(dependency, todo.id()))) {
             throw new TodoRuleViolationException(
@@ -76,6 +87,10 @@ public class TodoLifecycleService {
         }
     }
 
+    /**
+     * Converts the API recurrence shape into the canonical domain representation.
+     * Named schedules always mean one unit; only CUSTOM accepts an interval and unit.
+     */
     public Todo.Recurrence normalizeRecurrence(RecurrenceRule rule, LocalDate dueDate) {
         if (rule == null) {
             return null;
@@ -123,6 +138,7 @@ public class TodoLifecycleService {
     }
 
     private boolean reaches(Todo start, UUID targetId) {
+        // Iterative traversal avoids call-stack growth for long dependency chains.
         var pending = new ArrayDeque<Todo>();
         var visited = new HashSet<UUID>();
         pending.push(start);

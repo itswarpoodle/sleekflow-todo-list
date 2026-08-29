@@ -20,6 +20,10 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Defines the transaction boundary for TODO use cases and coordinates persistence
+ * with the lifecycle rules that span multiple aggregates.
+ */
 @Service
 public class TodoService {
 
@@ -34,6 +38,10 @@ public class TodoService {
         this.lifecycle = lifecycle;
     }
 
+    /**
+     * Returns one bounded page. The first query keeps pagination cheap; the second
+     * hydrates dependencies only for IDs already selected into that page.
+     */
     @Transactional(readOnly = true)
     public Page<Todo> findAll(
             int page,
@@ -107,6 +115,11 @@ public class TodoService {
         return repository.save(todo);
     }
 
+    /**
+     * Updates a TODO and creates the next recurring occurrence only on its first
+     * transition to COMPLETED. Optimistic locking and the database uniqueness guard
+     * make competing completion requests fail safely instead of creating duplicates.
+     */
     @Transactional
     public Todo update(
             UUID id,
@@ -137,6 +150,9 @@ public class TodoService {
         return todo;
     }
 
+    /**
+     * Marks a TODO as deleted while retaining its row for audit and recovery.
+     */
     @Transactional
     public void delete(UUID id) {
         findActive(id).softDelete();

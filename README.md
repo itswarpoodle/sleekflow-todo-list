@@ -36,6 +36,16 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies `/api` requests to Spring Boot on port 8080. Swagger UI is available at `http://localhost:8080/swagger-ui.html`.
 
+The web interface covers the complete core workflow: create, edit, and soft-delete TODOs; choose dependencies and recurrence rules; see blocked-state feedback; filter by status, priority, due date, or dependency state; sort by the supported fields; and move through bounded result pages. State stays local to the React components and the API layer is intentionally explicit.
+
+### Browser walkthrough
+
+1. Select **New TODO**, enter a name, and optionally add a description, due date, priority, recurrence rule, and dependencies.
+2. Use **Edit** to change a TODO's fields or lifecycle status. A blocked TODO will explain why it cannot move to **In progress** until its prerequisites are completed.
+3. Use the filter and sort controls on the left. All controls are backed by the bounded server-side list endpoint rather than filtering an unbounded client-side collection.
+4. Select **Delete**, review the confirmation, and confirm. The TODO leaves active views but remains retained in the database with its deletion timestamp.
+5. Complete a recurring TODO and return to the list to see its next occurrence created automatically.
+
 ## TODO API
 
 | Method | Path | Behavior |
