@@ -48,6 +48,8 @@ Open `http://localhost:5173`. Vite proxies `/api` requests to Spring Boot on por
 
 Names are required. Descriptions and due dates are optional. A create request defaults to `NOT_STARTED` status and `MEDIUM` priority when those fields are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads; `ARCHIVED` is a visible status and is not deletion.
 
+Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot be moved to `IN_PROGRESS`.
+
 The request and response schemas and enum values are available through Swagger UI. Runtime errors use a consistent envelope containing `status`, `code`, `message`, `path`, and field-specific validation errors.
 
 ## Verification

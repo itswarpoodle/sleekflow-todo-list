@@ -8,15 +8,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class TodoService {
 
     private final TodoRepository repository;
+    private final TodoLifecycleService lifecycle;
 
-    public TodoService(TodoRepository repository) {
+    public TodoService(TodoRepository repository, TodoLifecycleService lifecycle) {
         this.repository = repository;
+        this.lifecycle = lifecycle;
     }
 
     @Transactional(readOnly = true)
@@ -35,15 +38,22 @@ public class TodoService {
             String description,
             LocalDate dueDate,
             Todo.Status status,
-            Todo.Priority priority
+            Todo.Priority priority,
+            Set<UUID> dependencyIds
     ) {
-        return repository.save(new Todo(
+        var effectiveStatus = status == null ? Todo.Status.NOT_STARTED : status;
+        var dependencies = lifecycle.resolveDependencies(null, dependencyIds);
+        lifecycle.validateStatus(effectiveStatus, dependencies);
+
+        var todo = new Todo(
                 name.trim(),
                 normalizeDescription(description),
                 dueDate,
-                status == null ? Todo.Status.NOT_STARTED : status,
+                effectiveStatus,
                 priority == null ? Todo.Priority.MEDIUM : priority
-        ));
+        );
+        todo.replaceDependencies(dependencies);
+        return repository.save(todo);
     }
 
     @Transactional
@@ -53,10 +63,14 @@ public class TodoService {
             String description,
             LocalDate dueDate,
             Todo.Status status,
-            Todo.Priority priority
+            Todo.Priority priority,
+            Set<UUID> dependencyIds
     ) {
         var todo = findActive(id);
+        var dependencies = lifecycle.resolveDependencies(id, dependencyIds);
+        lifecycle.validateUpdate(todo, dependencies, status);
         todo.update(name.trim(), normalizeDescription(description), dueDate, status, priority);
+        todo.replaceDependencies(dependencies);
         return todo;
     }
 

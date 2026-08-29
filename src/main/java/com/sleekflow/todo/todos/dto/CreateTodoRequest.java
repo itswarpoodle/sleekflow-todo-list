@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
+import java.util.Set;
+import java.util.UUID;
 
 public record CreateTodoRequest(
         @NotBlank(message = "Name is required")
@@ -14,6 +16,7 @@ public record CreateTodoRequest(
         String description,
         LocalDate dueDate,
         Todo.Status status,
-        Todo.Priority priority
+        Todo.Priority priority,
+        Set<UUID> dependencyIds
 ) {
 }

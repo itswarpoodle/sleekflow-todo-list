@@ -60,6 +60,11 @@ public class TodoController {
                     responseCode = "400",
                     description = "Invalid request",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "Dependency or lifecycle rule violated",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             )
     })
     public ResponseEntity<TodoResponse> create(@Valid @RequestBody CreateTodoRequest request) {
@@ -68,7 +73,8 @@ public class TodoController {
                 request.description(),
                 request.dueDate(),
                 request.status(),
-                request.priority()
+                request.priority(),
+                request.dependencyIds()
         ));
         return ResponseEntity.created(URI.create("/api/todos/" + created.id())).body(created);
     }
@@ -85,6 +91,11 @@ public class TodoController {
                     responseCode = "404",
                     description = "TODO not found",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "Dependency or lifecycle rule violated",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             )
     })
     public TodoResponse update(
@@ -97,7 +108,8 @@ public class TodoController {
                 request.description(),
                 request.dueDate(),
                 request.status(),
-                request.priority()
+                request.priority(),
+                request.dependencyIds()
         ));
     }
 

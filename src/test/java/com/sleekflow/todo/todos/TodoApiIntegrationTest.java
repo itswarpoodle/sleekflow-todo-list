@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,6 +18,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -48,8 +50,12 @@ class TodoApiIntegrationTest {
     @Autowired
     private TodoRepository repository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void clearTodos() {
+        jdbcTemplate.update("DELETE FROM todo_dependencies");
         repository.deleteAllInBatch();
     }
 
@@ -74,6 +80,8 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.dueDate").value("2026-09-30"))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.dependencyIds", hasSize(0)))
+                .andExpect(jsonPath("$.blocked").value(false))
                 .andExpect(jsonPath("$.createdAt", notNullValue()))
                 .andExpect(jsonPath("$.updatedAt", notNullValue()))
                 .andReturn();
@@ -228,6 +236,132 @@ class TodoApiIntegrationTest {
     }
 
     @Test
+    void createsAndReadsMultipleDependenciesWithBlockedState() throws Exception {
+        String incompleteId = createTodo("""
+                {"name":"Incomplete prerequisite"}
+                """);
+        String completedId = createTodo("""
+                {"name":"Completed prerequisite","status":"COMPLETED"}
+                """);
+
+        var response = mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Dependent task",
+                                  "dependencyIds":["%s","%s"]
+                                }
+                                """.formatted(incompleteId, completedId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.dependencyIds", containsInAnyOrder(incompleteId, completedId)))
+                .andExpect(jsonPath("$.blocked").value(true))
+                .andReturn();
+
+        String dependentId = JsonPath.read(response.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(get("/api/todos/{id}", dependentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dependencyIds", containsInAnyOrder(incompleteId, completedId)))
+                .andExpect(jsonPath("$.blocked").value(true));
+    }
+
+    @Test
+    void rejectsMissingSelfAndTransitiveCyclicDependencies() throws Exception {
+        var missingId = UUID.randomUUID();
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {"name":"Missing dependency","dependencyIds":["%s"]}
+                                """.formatted(missingId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DEPENDENCY_NOT_FOUND"));
+
+        String firstId = createTodo("""
+                {"name":"First"}
+                """);
+        mockMvc.perform(put("/api/todos/{id}", firstId)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"First",
+                                  "status":"NOT_STARTED",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(firstId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("SELF_DEPENDENCY"));
+
+        String secondId = createTodo("""
+                {"name":"Second","dependencyIds":["%s"]}
+                """.formatted(firstId));
+        String thirdId = createTodo("""
+                {"name":"Third","dependencyIds":["%s"]}
+                """.formatted(secondId));
+
+        mockMvc.perform(put("/api/todos/{id}", firstId)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"First",
+                                  "status":"NOT_STARTED",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(thirdId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CYCLIC_DEPENDENCY"));
+    }
+
+    @Test
+    void blocksInProgressUntilEveryDependencyIsCompleted() throws Exception {
+        String prerequisiteId = createTodo("""
+                {"name":"Prerequisite"}
+                """);
+        String dependentId = createTodo("""
+                {"name":"Dependent","dependencyIds":["%s"]}
+                """.formatted(prerequisiteId));
+
+        mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Dependent",
+                                  "status":"IN_PROGRESS",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TODO_BLOCKED"));
+
+        mockMvc.perform(put("/api/todos/{id}", prerequisiteId)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Prerequisite",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Dependent",
+                                  "status":"IN_PROGRESS",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.blocked").value(false));
+    }
+
+    @Test
     void publishesEveryCrudOperationInOpenApi() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -238,12 +372,16 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].delete").exists())
                 .andExpect(jsonPath("$.paths['/api/todos'].post.responses['201']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos'].post.responses['400']").exists())
+                .andExpect(jsonPath("$.paths['/api/todos'].post.responses['409']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].get.responses['404']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].put.responses['400']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].put.responses['404']").exists())
+                .andExpect(jsonPath("$.paths['/api/todos/{id}'].put.responses['409']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].delete.responses['204']").exists())
                 .andExpect(jsonPath("$.paths['/api/todos/{id}'].delete.responses['404']").exists())
-                .andExpect(jsonPath("$.components.schemas.ApiErrorResponse").exists());
+                .andExpect(jsonPath("$.components.schemas.ApiErrorResponse").exists())
+                .andExpect(jsonPath("$.components.schemas.CreateTodoRequest.properties.dependencyIds").exists())
+                .andExpect(jsonPath("$.components.schemas.TodoResponse.properties.blocked").exists());
     }
 
     private String createTodo(String requestBody) throws Exception {

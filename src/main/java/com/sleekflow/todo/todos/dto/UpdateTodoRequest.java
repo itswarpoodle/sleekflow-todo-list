@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
+import java.util.Set;
+import java.util.UUID;
 
 public record UpdateTodoRequest(
         @NotBlank(message = "Name is required")
@@ -17,6 +19,7 @@ public record UpdateTodoRequest(
         @NotNull(message = "Status is required")
         Todo.Status status,
         @NotNull(message = "Priority is required")
-        Todo.Priority priority
+        Todo.Priority priority,
+        Set<UUID> dependencyIds
 ) {
 }

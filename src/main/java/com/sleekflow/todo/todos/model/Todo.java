@@ -7,6 +7,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -14,6 +17,10 @@ import jakarta.persistence.Version;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -67,6 +74,14 @@ public class Todo {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @ManyToMany
+    @JoinTable(
+            name = "todo_dependencies",
+            joinColumns = @JoinColumn(name = "todo_id"),
+            inverseJoinColumns = @JoinColumn(name = "dependency_id")
+    )
+    private Set<Todo> dependencies = new LinkedHashSet<>();
+
     protected Todo() {
     }
 
@@ -100,6 +115,11 @@ public class Todo {
 
     public void softDelete() {
         deletedAt = Instant.now();
+    }
+
+    public void replaceDependencies(Collection<Todo> dependencies) {
+        this.dependencies.clear();
+        this.dependencies.addAll(dependencies);
     }
 
     @PrePersist
@@ -148,5 +168,9 @@ public class Todo {
 
     public Instant deletedAt() {
         return deletedAt;
+    }
+
+    public Set<Todo> dependencies() {
+        return Collections.unmodifiableSet(dependencies);
     }
 }

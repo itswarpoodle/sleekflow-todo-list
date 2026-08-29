@@ -19,6 +19,20 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(TodoRuleViolationException.class)
+    ResponseEntity<ApiErrorResponse> handleRuleViolation(
+            TodoRuleViolationException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                exception.status(),
+                exception.code(),
+                exception.getMessage(),
+                request,
+                Map.of()
+        );
+    }
+
     @ExceptionHandler(TodoNotFoundException.class)
     ResponseEntity<ApiErrorResponse> handleNotFound(
             TodoNotFoundException exception,
