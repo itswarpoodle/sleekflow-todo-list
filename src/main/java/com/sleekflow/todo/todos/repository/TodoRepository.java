@@ -34,6 +34,7 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
                       AND (:filterStatus = false OR todo.status = :status)
                       AND (:filterPriority = false OR todo.priority = :priority)
                       AND (:filterDueDate = false OR todo.dueDate = :dueDate)
+                      AND (:filterName = false OR lower(todo.name) LIKE lower(concat('%', :name, '%')))
                       AND (
                           :filterBlocked = false
                           OR (:blocked = true AND EXISTS (
@@ -74,6 +75,7 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
                       AND (:filterStatus = false OR todo.status = :status)
                       AND (:filterPriority = false OR todo.priority = :priority)
                       AND (:filterDueDate = false OR todo.dueDate = :dueDate)
+                      AND (:filterName = false OR lower(todo.name) LIKE lower(concat('%', :name, '%')))
                       AND (
                           :filterBlocked = false
                           OR (:blocked = true AND EXISTS (
@@ -98,6 +100,8 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
             @Param("dueDate") LocalDate dueDate,
             @Param("filterBlocked") boolean filterBlocked,
             @Param("blocked") boolean blocked,
+            @Param("filterName") boolean filterName,
+            @Param("name") String name,
             @Param("sortField") String sortField,
             @Param("direction") String direction,
             @Param("completedStatus") Todo.Status completedStatus,

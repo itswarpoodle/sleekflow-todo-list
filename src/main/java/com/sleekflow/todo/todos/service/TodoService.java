@@ -50,6 +50,7 @@ public class TodoService {
             Todo.Priority priority,
             LocalDate dueDate,
             Boolean blocked,
+            String name,
             String sort,
             String direction
     ) {
@@ -66,6 +67,8 @@ public class TodoService {
                 dueDate == null ? LocalDate.of(1970, 1, 1) : dueDate,
                 blocked != null,
                 Boolean.TRUE.equals(blocked),
+                name != null && !name.isBlank(),
+                name == null ? "" : name.trim(),
                 sortField,
                 sortDirection,
                 Todo.Status.COMPLETED,

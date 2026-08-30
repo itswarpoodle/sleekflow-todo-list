@@ -83,7 +83,7 @@ test('creates a recurring TODO with a dependency', async () => {
   fireEvent.change(within(editor).getByLabelText('Description'), { target: { value: 'Walk through the core workflow.' } })
   fireEvent.change(within(editor).getByLabelText('Due date'), { target: { value: '2026-09-20' } })
   fireEvent.change(within(editor).getByLabelText('Recurrence'), { target: { value: 'WEEKLY' } })
-  fireEvent.click(within(editor).getByRole('checkbox', { name: /Review the project brief/ }))
+  fireEvent.click(await within(editor).findByRole('checkbox', { name: /Review the project brief/ }))
   fireEvent.click(within(editor).getByRole('button', { name: 'Create TODO' }))
 
   expect(await screen.findByText('Prepare the live demo')).toBeInTheDocument()
@@ -114,6 +114,22 @@ test('sends filter and sort choices to the paged API', async () => {
     expect(urls.some((url) => url.includes('dueDate=2026-09-10'))).toBe(true)
     expect(urls.some((url) => url.includes('blocked=false'))).toBe(true)
     expect(urls.some((url) => url.includes('sort=priority') && url.includes('direction=desc'))).toBe(true)
+  })
+})
+
+test('searches dependency candidates through the bounded API', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(todoPage([prerequisite])))
+  render(<App />)
+  await screen.findByText('Review the project brief')
+
+  fireEvent.click(screen.getByRole('button', { name: 'New TODO' }))
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search dependencies' }), {
+    target: { value: 'release' },
+  })
+
+  await waitFor(() => {
+    const urls = fetchMock.mock.calls.map(([input]) => input.toString())
+    expect(urls.some((url) => url.includes('name=release') && url.includes('size=20'))).toBe(true)
   })
 })
 

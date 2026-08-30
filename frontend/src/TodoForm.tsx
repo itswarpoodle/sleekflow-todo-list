@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { TodoApiError } from './api'
 import type {
   RecurrenceFrequency,
@@ -16,6 +16,7 @@ type TodoFormProps = {
   saving: boolean
   error: TodoApiError | null
   onCancel: () => void
+  onDependencySearch: (query: string) => void
   onSubmit: (input: TodoInput) => Promise<void>
 }
 
@@ -25,6 +26,7 @@ export default function TodoForm({
   saving,
   error,
   onCancel,
+  onDependencySearch,
   onSubmit,
 }: TodoFormProps) {
   const [name, setName] = useState(todo?.name || '')
@@ -39,13 +41,9 @@ export default function TodoForm({
   const [unit, setUnit] = useState<RecurrenceUnit>(todo?.recurrence?.unit || 'DAYS')
   const [clientError, setClientError] = useState<string | null>(null)
 
-  // A TODO cannot depend on itself; search only narrows the already bounded catalog.
-  const dependencies = useMemo(() => {
-    const normalizedSearch = dependencySearch.trim().toLowerCase()
-    return availableDependencies.filter((candidate) =>
-      candidate.id !== todo?.id && (!normalizedSearch || candidate.name.toLowerCase().includes(normalizedSearch)),
-    )
-  }, [availableDependencies, dependencySearch, todo?.id])
+  // A TODO cannot depend on itself. Candidate matching is server-backed so the
+  // selector remains useful when the shared list contains thousands of TODOs.
+  const dependencies = availableDependencies.filter((candidate) => candidate.id !== todo?.id)
 
   const toggleDependency = (id: string) => {
     setDependencyIds((current) => current.includes(id)
@@ -192,7 +190,10 @@ export default function TodoForm({
         <p>A TODO remains blocked until every selected prerequisite is completed.</p>
         <input
           aria-label="Search dependencies"
-          onChange={(event) => setDependencySearch(event.target.value)}
+          onChange={(event) => {
+            setDependencySearch(event.target.value)
+            onDependencySearch(event.target.value)
+          }}
           placeholder="Find a TODO"
           type="search"
           value={dependencySearch}

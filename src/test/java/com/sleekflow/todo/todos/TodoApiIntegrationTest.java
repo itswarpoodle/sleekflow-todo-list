@@ -576,6 +576,28 @@ class TodoApiIntegrationTest {
     }
 
     @Test
+    void searchesActiveTodosByPartialNameForBoundedDependencySelection() throws Exception {
+        createTodo("""
+                {"name":"Prepare release notes"}
+                """);
+        createTodo("""
+                {"name":"Review RELEASE checklist"}
+                """);
+        createTodo("""
+                {"name":"Unrelated task"}
+                """);
+
+        mockMvc.perform(get("/api/todos")
+                        .param("name", "release")
+                        .param("sort", "name")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Prepare release notes"))
+                .andExpect(jsonPath("$.content[1].name").value("Review RELEASE checklist"));
+    }
+
+    @Test
     void sortsEveryAllowedFieldUsingDomainOrderAndNullsLast() throws Exception {
         createTodo("""
                 {"name":"alpha","status":"NOT_STARTED","priority":"LOW"}

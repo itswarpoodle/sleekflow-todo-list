@@ -1,18 +1,64 @@
 # SleekFlow TODO List
 
-A Java 21/Spring Boot backend and a deliberately small React/TypeScript client for the SleekFlow software engineer assessment.
+A Java 21 and Spring Boot API with a deliberately small React and TypeScript client for the SleekFlow software engineer assessment.
+
+## What is included
+
+- Complete TODO CRUD with name, description, due date, status, and priority
+- Daily, weekly, monthly, and custom recurrence
+- Automatic successor creation when recurring work is completed
+- Multiple dependencies with cycle detection and blocked-state enforcement
+- Server-side filtering, sorting, name search, and bounded pagination
+- Timestamp-based soft deletion, separate from the visible `ARCHIVED` status
+- Optimistic locking and a database uniqueness guard for concurrent completion
+- PostgreSQL indexes and a verified 10,000-row list path
+- React workflows for creating, editing, deleting, filtering, sorting, and pagination
+- Swagger UI, a checked-in OpenAPI snapshot, deterministic demo data, and integration tests
 
 ## Prerequisites
 
 - Java 21
-- Maven 3.9+ (or use `./mvnw` after the wrapper is generated)
 - Node.js 24 LTS and npm 11+
-- Docker Desktop for PostgreSQL-backed integration tests
-- PostgreSQL 18 for running the backend locally
+- Docker Desktop with Docker Compose
 
-## Local development
+Maven does not need to be installed separately because the repository includes `./mvnw`.
 
-Start a local PostgreSQL database using your preferred installation, then export these values if they differ from the defaults:
+## Quick start
+
+Start PostgreSQL and wait for it to become healthy:
+
+```shell
+docker compose up -d --wait postgres
+```
+
+Start the backend in the first terminal:
+
+```shell
+./mvnw spring-boot:run
+```
+
+Install the locked frontend dependencies and start Vite in a second terminal:
+
+```shell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the application at `http://localhost:5173`. Vite proxies `/api` requests to Spring Boot at `http://localhost:8080`.
+
+Useful local endpoints:
+
+- Application: `http://localhost:5173`
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+- Health check: `http://localhost:8080/actuator/health`
+
+The database volume is retained when `docker compose down` is used.
+
+### Existing PostgreSQL installation
+
+The backend defaults to the Compose credentials below. Override them when using another PostgreSQL instance:
 
 ```shell
 export DATABASE_URL=jdbc:postgresql://localhost:5432/sleekflow_todo
@@ -20,31 +66,31 @@ export DATABASE_USERNAME=sleekflow
 export DATABASE_PASSWORD=sleekflow
 ```
 
-Run the backend:
+Flyway applies all required schema migrations when the backend starts.
+
+## Deterministic demo data
+
+After PostgreSQL is running and Flyway has created the schema, load the reviewer dataset:
 
 ```shell
-./mvnw spring-boot:run
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U sleekflow -d sleekflow_todo \
+  < scripts/demo-data.sql
 ```
 
-Run the frontend in a second terminal:
+The script is idempotent. It replaces only six fixed demo TODOs and any recurring successors generated from the demo recurrence. It does not clear unrelated TODOs.
 
-```shell
-cd frontend
-npm install
-npm run dev
-```
+## Five-minute demo route
 
-Open `http://localhost:5173`. Vite proxies `/api` requests to Spring Boot on port 8080. Swagger UI is available at `http://localhost:8080/swagger-ui.html`.
+1. Open the list and point out all four statuses, three priorities, due dates, recurrence, and the blocked badge.
+2. Filter for blocked TODOs, then edit **Present dependency workflow** and try to move it to **In progress**. Show the readable `TODO_BLOCKED` response.
+3. Complete **Confirm live demo environment**, return to the dependent TODO, and move it to **In progress** successfully.
+4. Complete **Run weekly product review** and show the automatically created occurrence due one week later.
+5. Create a disposable TODO, edit it, then delete it. Explain that it leaves active views while its database row is retained with `deleted_at`.
+6. Demonstrate status, priority, due-date, and blocked filters; switch sort fields and direction; then show bounded pagination.
+7. Open Swagger UI and finish with the automated verification commands below.
 
-The web interface covers the complete core workflow: create, edit, and soft-delete TODOs; choose dependencies and recurrence rules; see blocked-state feedback; filter by status, priority, due date, or dependency state; sort by the supported fields; and move through bounded result pages. State stays local to the React components and the API layer is intentionally explicit.
-
-### Browser walkthrough
-
-1. Select **New TODO**, enter a name, and optionally add a description, due date, priority, recurrence rule, and dependencies.
-2. Use **Edit** to change a TODO's fields or lifecycle status. A blocked TODO will explain why it cannot move to **In progress** until its prerequisites are completed.
-3. Use the filter and sort controls on the left. All controls are backed by the bounded server-side list endpoint rather than filtering an unbounded client-side collection.
-4. Select **Delete**, review the confirmation, and confirm. The TODO leaves active views but remains retained in the database with its deletion timestamp.
-5. Complete a recurring TODO and return to the list to see its next occurrence created automatically.
+Run `scripts/demo-data.sql` again whenever the demo needs to return to its initial state.
 
 ## TODO API
 
@@ -56,23 +102,59 @@ The web interface covers the complete core workflow: create, edit, and soft-dele
 | `PUT` | `/api/todos/{id}` | Replaces the editable TODO fields |
 | `DELETE` | `/api/todos/{id}` | Soft-deletes a TODO and returns `204` |
 
-Names are required. Descriptions and due dates are optional. A create request defaults to `NOT_STARTED` status and `MEDIUM` priority when those fields are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads; `ARCHIVED` is a visible status and is not deletion.
+Names are required. Descriptions and due dates are optional. Create requests default to `NOT_STARTED` and `MEDIUM` when status and priority are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads. `ARCHIVED` is visible and is not deletion.
 
-Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot be moved to `IN_PROGRESS`.
+Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot move to `IN_PROGRESS`.
 
-Recurring TODOs use a `recurrence` object. `DAILY`, `WEEKLY`, and `MONTHLY` are canonical one-unit rules; `CUSTOM` requires a positive `interval` and a `unit` of `DAYS`, `WEEKS`, or `MONTHS`. A recurring TODO requires a due date. Its first transition to `COMPLETED` creates one `NOT_STARTED` successor with a calendar-adjusted due date and a `previousOccurrenceId` link. Optimistic locking plus a unique database constraint keeps competing or repeated completion requests from creating duplicate successors.
+Recurring TODOs use a `recurrence` object. `DAILY`, `WEEKLY`, and `MONTHLY` are canonical one-unit rules. `CUSTOM` requires a positive `interval` and a `unit` of `DAYS`, `WEEKS`, or `MONTHS`. Recurrence requires a due date. The first transition to `COMPLETED` creates one `NOT_STARTED` successor with a calendar-adjusted due date and a `previousOccurrenceId` link.
 
-The list endpoint accepts zero-based `page` and `size` parameters. Size defaults to 20 and is capped at 100. Optional `status`, `priority`, `dueDate`, and `blocked` parameters can be combined. Sorting is deliberately limited to `dueDate`, `priority`, `status`, or `name` through `sort`, with `direction=asc|desc`; every order includes an ID tie-breaker so rows do not drift between pages. Responses contain `content`, `page`, `size`, `totalElements`, and `totalPages`.
+The list endpoint accepts zero-based `page` and `size` parameters. Size defaults to 20 and is capped at 100. Optional `status`, `priority`, `dueDate`, `blocked`, and case-insensitive partial `name` parameters can be combined. The UI uses `name` for bounded dependency search. Sorting is limited to `dueDate`, `priority`, `status`, or `name` through `sort`, with `direction=asc|desc`. Every order includes an ID tie-breaker so rows do not drift between pages.
 
-The request and response schemas and enum values are available through Swagger UI. Runtime errors use a consistent envelope containing `status`, `code`, `message`, `path`, and field-specific validation errors.
+Runtime errors use a consistent envelope containing `status`, `code`, `message`, `path`, and field-specific validation errors.
+
+## API documentation
+
+- Interactive documentation is available through Swagger UI while the backend is running.
+- [docs/openapi.json](docs/openapi.json) is a checked-in snapshot for offline review.
+- Refresh the snapshot after API changes with:
+
+```shell
+curl --fail --silent --show-error \
+  http://localhost:8080/v3/api-docs \
+  --output docs/openapi.json
+```
 
 ## Verification
 
+Run the backend build and PostgreSQL-backed integration suite:
+
 ```shell
 ./mvnw verify
+```
+
+Run the frontend component tests and production build:
+
+```shell
 cd frontend
-npm test
+npm test -- --run
 npm run build
 ```
 
-Backend integration tests start an isolated PostgreSQL 18.6 container through Testcontainers.
+The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD, defaults, validation, error envelopes, durable deletion, missing resources, multiple dependencies, cycle rejection, blocked transitions, all recurrence schedules, repeat and concurrent completion, filters, name search, domain sorting, stable pagination, the 10,000-row path, index use, and the published OpenAPI contract.
+
+## Repository guide
+
+- `src/main/java/.../controller/`: REST endpoints
+- `src/main/java/.../dto/`: validated API contracts
+- `src/main/java/.../model/`: persistent TODO aggregate
+- `src/main/java/.../repository/`: bounded queries and persistence
+- `src/main/java/.../service/`: application and lifecycle rules
+- `src/main/resources/db/migration/`: Flyway schema history
+- `frontend/src/`: React UI, explicit API client, types, and component tests
+- `scripts/demo-data.sql`: repeatable live-demo dataset
+- `decision-log.md`: requirement interpretations and engineering decisions
+- `AGENTS.md`: repository working rules for AI-assisted development
+
+## AI assistance
+
+AI coding tools were used during planning, implementation, documentation, and verification. All generated changes were reviewed against the assessment brief, exercised through automated tests, and tested through the browser before handoff.

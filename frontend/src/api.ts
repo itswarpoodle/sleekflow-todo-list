@@ -39,6 +39,7 @@ export function listTodos(query: TodoQuery, signal?: AbortSignal) {
   if (query.priority) parameters.set('priority', query.priority)
   if (query.dueDate) parameters.set('dueDate', query.dueDate)
   if (query.blocked !== undefined) parameters.set('blocked', query.blocked.toString())
+  if (query.name) parameters.set('name', query.name)
   if (query.sort) parameters.set('sort', query.sort)
 
   return request<TodoPage>(

@@ -46,10 +46,11 @@ public class TodoController {
             @RequestParam(required = false) Todo.Priority priority,
             @RequestParam(required = false) LocalDate dueDate,
             @RequestParam(required = false) Boolean blocked,
+            @RequestParam(required = false) String name,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "asc") String direction
     ) {
-        var todos = service.findAll(page, size, status, priority, dueDate, blocked, sort, direction)
+        var todos = service.findAll(page, size, status, priority, dueDate, blocked, name, sort, direction)
                 .map(TodoResponse::from);
         return PageResponse.from(todos);
     }

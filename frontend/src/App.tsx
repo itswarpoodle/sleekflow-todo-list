@@ -15,6 +15,7 @@ export default function App() {
   const [query, setQuery] = useState<TodoQuery>(initialQuery)
   const [page, setPage] = useState<TodoPage>(emptyPage)
   const [availableDependencies, setAvailableDependencies] = useState<Todo[]>([])
+  const [dependencySearch, setDependencySearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
@@ -42,15 +43,30 @@ export default function App() {
     return () => controller.abort()
   }, [query, revision])
 
-  // Dependency choices are loaded separately so changing list filters does not hide
-  // valid prerequisites from the editor. The API cap keeps this request bounded.
+  // Dependency choices use a separate bounded, server-backed search so list filters
+  // do not hide valid prerequisites and large TODO collections remain usable.
   useEffect(() => {
+    if (!editorOpen) return
     const controller = new AbortController()
-    listTodos({ page: 0, size: 100, sort: 'name', direction: 'asc' }, controller.signal)
-      .then((result) => setAvailableDependencies(result.content))
-      .catch(() => setAvailableDependencies([]))
-    return () => controller.abort()
-  }, [revision])
+    const timeout = window.setTimeout(() => {
+      listTodos({
+        page: 0,
+        size: 20,
+        name: dependencySearch.trim() || undefined,
+        sort: 'name',
+        direction: 'asc',
+      }, controller.signal)
+        .then((result) => setAvailableDependencies(result.content))
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          setAvailableDependencies([])
+        })
+    }, 200)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [dependencySearch, editorOpen, revision])
 
   useEffect(() => {
     if (!editorOpen) return
@@ -75,12 +91,14 @@ export default function App() {
 
   const openCreate = () => {
     setEditingTodo(null)
+    setDependencySearch('')
     setFormError(null)
     setEditorOpen(true)
   }
 
   const openEdit = (todo: Todo) => {
     setEditingTodo(todo)
+    setDependencySearch('')
     setFormError(null)
     setEditorOpen(true)
   }
@@ -307,6 +325,7 @@ export default function App() {
               error={formError}
               key={editingTodo?.id || 'new'}
               onCancel={closeEditor}
+              onDependencySearch={setDependencySearch}
               onSubmit={saveTodo}
               saving={saving}
               todo={editingTodo}

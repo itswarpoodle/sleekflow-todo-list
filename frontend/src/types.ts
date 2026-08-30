@@ -56,6 +56,7 @@ export type TodoQuery = {
   priority?: TodoPriority
   dueDate?: string
   blocked?: boolean
+  name?: string
   sort?: 'dueDate' | 'priority' | 'status' | 'name'
   direction: 'asc' | 'desc'
 }
