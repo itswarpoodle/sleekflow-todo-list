@@ -10,6 +10,7 @@ const prerequisite: Todo = {
   dueDate: '2026-09-10',
   status: 'COMPLETED',
   priority: 'HIGH',
+  version: 0,
   dependencyIds: [],
   blocked: false,
   recurrence: null,
@@ -38,7 +39,33 @@ function jsonResponse(body: unknown, status = 200) {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
+
+class FakeEventSource {
+  static current: FakeEventSource | null = null
+  private readonly listeners = new Map<string, Set<EventListener>>()
+
+  constructor(_url: string) {
+    FakeEventSource.current = this
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) || new Set<EventListener>()
+    listeners.add(listener)
+    this.listeners.set(type, listeners)
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    this.listeners.get(type)?.delete(listener)
+  }
+
+  close() {}
+
+  emit(type: string) {
+    this.listeners.get(type)?.forEach((listener) => listener(new Event(type)))
+  }
+}
 
 test('loads the complete TODO summary', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(todoPage([prerequisite])))
@@ -51,6 +78,21 @@ test('loads the complete TODO summary', async () => {
   const card = screen.getByText('Review the project brief').closest('article')
   expect(within(card as HTMLElement).getByText('Completed')).toBeInTheDocument()
   expect(within(card as HTMLElement).getByText('High')).toBeInTheDocument()
+})
+
+test('refetches the current bounded page after a real-time invalidation', async () => {
+  vi.stubGlobal('EventSource', FakeEventSource)
+  let changed = false
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(todoPage([
+    changed ? { ...prerequisite, name: 'Review the synchronized implementation', version: 1 } : prerequisite,
+  ])))
+
+  render(<App />)
+  await screen.findByText('Review the project brief')
+  changed = true
+  FakeEventSource.current?.emit('todo-change')
+
+  expect(await screen.findByText('Review the synchronized implementation')).toBeInTheDocument()
 })
 
 test('creates a recurring TODO with a dependency', async () => {
@@ -137,7 +179,7 @@ test('edits and soft-deletes a TODO through explicit confirmation', async () => 
   let currentTodo: Todo | null = prerequisite
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
     if (init?.method === 'PUT') {
-      currentTodo = { ...prerequisite, name: 'Review the final implementation' }
+      currentTodo = { ...prerequisite, name: 'Review the final implementation', version: 1 }
       return jsonResponse(currentTodo)
     }
     if (init?.method === 'DELETE') {
@@ -161,4 +203,44 @@ test('edits and soft-deletes a TODO through explicit confirmation', async () => 
   expect(await screen.findByText('The list is ready for its first TODO.')).toBeInTheDocument()
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true)
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(true)
+  const putCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+  const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+  expect(new Headers(putCall?.[1]?.headers).get('If-Match')).toBe('"0"')
+  expect(new Headers(deleteCall?.[1]?.headers).get('If-Match')).toBe('"1"')
+})
+
+test('reloads the current TODO after a stale update conflict', async () => {
+  const currentTodo = {
+    ...prerequisite,
+    name: 'Review the current implementation',
+    version: 1,
+  }
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (init?.method === 'PUT') {
+      return jsonResponse({
+        code: 'TODO_VERSION_CONFLICT',
+        message: 'The TODO changed after it was loaded; reload the current version and try again',
+        fieldErrors: {},
+      }, 412)
+    }
+    if (input.toString() === '/api/todos/todo-1') return jsonResponse(currentTodo)
+    return jsonResponse(todoPage([prerequisite]))
+  })
+
+  render(<App />)
+  await screen.findByText('Review the project brief')
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  const editor = screen.getByRole('dialog')
+  fireEvent.change(within(editor).getByLabelText('Name'), { target: { value: 'My stale edit' } })
+  fireEvent.click(within(editor).getByRole('button', { name: 'Save changes' }))
+
+  expect(await within(editor).findByText(/changed after it was loaded/)).toBeInTheDocument()
+  fireEvent.click(within(editor).getByRole('button', { name: 'Reload current TODO' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Review the current implementation')
+    expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('Review the current implementation')
+  })
+  const putCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+  expect(new Headers(putCall?.[1]?.headers).get('If-Match')).toBe('"0"')
 })

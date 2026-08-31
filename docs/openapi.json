@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:8080",
+      "url": "http://127.0.0.1:18080",
       "description": "Generated server url"
     }
   ],
@@ -65,6 +65,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "Strong ETag from the latest TODO representation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -117,6 +126,26 @@
                 }
               }
             }
+          },
+          "412": {
+            "description": "If-Match refers to a stale TODO version",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "If-Match header is required",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -134,6 +163,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "Strong ETag from the latest TODO representation",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -142,6 +180,26 @@
           },
           "404": {
             "description": "TODO not found",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match refers to a stale TODO version",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "If-Match header is required",
             "content": {
               "*/*": {
                 "schema": {
@@ -311,6 +369,27 @@
           }
         }
       }
+    },
+    "/api/todos/events": {
+      "get": {
+        "tags": [
+          "todo-event-controller"
+        ],
+        "summary": "Stream committed TODO changes from this application instance",
+        "operationId": "subscribe",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SseEmitter"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -459,6 +538,10 @@
               "HIGH"
             ]
           },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
           "dependencyIds": {
             "type": "array",
             "items": {
@@ -561,6 +644,15 @@
           "totalPages": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "SseEmitter": {
+        "type": "object",
+        "properties": {
+          "timeout": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       }

@@ -57,14 +57,24 @@ export function createTodo(input: TodoInput) {
   }, 'The TODO could not be created.')
 }
 
-export function updateTodo(id: string, input: TodoInput) {
+export function getTodo(id: string) {
+  return request<Todo>(`/api/todos/${id}`, undefined, 'The current TODO could not be loaded.')
+}
+
+export function updateTodo(id: string, version: number, input: TodoInput) {
   return request<Todo>(`/api/todos/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'If-Match': `"${version}"`,
+    },
     body: JSON.stringify(input),
   }, 'The TODO could not be updated.')
 }
 
-export function deleteTodo(id: string) {
-  return request<void>(`/api/todos/${id}`, { method: 'DELETE' }, 'The TODO could not be deleted.')
+export function deleteTodo(id: string, version: number) {
+  return request<void>(`/api/todos/${id}`, {
+    method: 'DELETE',
+    headers: { 'If-Match': `"${version}"` },
+  }, 'The TODO could not be deleted.')
 }

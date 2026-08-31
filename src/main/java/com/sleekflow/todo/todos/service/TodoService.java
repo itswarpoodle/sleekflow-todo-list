@@ -1,6 +1,7 @@
 package com.sleekflow.todo.todos.service;
 
 import com.sleekflow.todo.todos.dto.RecurrenceRule;
+import com.sleekflow.todo.todos.dto.TodoChangeEvent;
 import com.sleekflow.todo.todos.exception.TodoNotFoundException;
 import com.sleekflow.todo.todos.exception.TodoRuleViolationException;
 import com.sleekflow.todo.todos.model.Todo;
@@ -32,10 +33,12 @@ public class TodoService {
 
     private final TodoRepository repository;
     private final TodoLifecycleService lifecycle;
+    private final TodoEventStream events;
 
-    public TodoService(TodoRepository repository, TodoLifecycleService lifecycle) {
+    public TodoService(TodoRepository repository, TodoLifecycleService lifecycle, TodoEventStream events) {
         this.repository = repository;
         this.lifecycle = lifecycle;
+        this.events = events;
     }
 
     /**
@@ -115,7 +118,9 @@ public class TodoService {
                 recurrence
         );
         todo.replaceDependencies(dependencies);
-        return repository.save(todo);
+        var created = repository.save(todo);
+        events.publishAfterCommit(TodoChangeEvent.Type.CREATED, created);
+        return created;
     }
 
     /**
@@ -126,6 +131,7 @@ public class TodoService {
     @Transactional
     public Todo update(
             UUID id,
+            long expectedVersion,
             String name,
             String description,
             LocalDate dueDate,
@@ -135,6 +141,7 @@ public class TodoService {
             RecurrenceRule recurrenceRule
     ) {
         var todo = findActive(id);
+        verifyVersion(todo, expectedVersion);
         var previousStatus = todo.status();
         var dependencies = lifecycle.resolveDependencies(id, dependencyIds);
         lifecycle.validateUpdate(todo, dependencies, status);
@@ -148,8 +155,10 @@ public class TodoService {
                 && !repository.existsByPreviousOccurrenceId(todo.id())) {
             var nextOccurrence = todo.nextOccurrence();
             nextOccurrence.replaceDependencies(dependencies);
-            repository.save(nextOccurrence);
+            var created = repository.save(nextOccurrence);
+            events.publishAfterCommit(TodoChangeEvent.Type.CREATED, created);
         }
+        events.publishAfterCommit(TodoChangeEvent.Type.UPDATED, todo);
         return todo;
     }
 
@@ -157,13 +166,26 @@ public class TodoService {
      * Marks a TODO as deleted while retaining its row for audit and recovery.
      */
     @Transactional
-    public void delete(UUID id) {
-        findActive(id).softDelete();
+    public void delete(UUID id, long expectedVersion) {
+        var todo = findActive(id);
+        verifyVersion(todo, expectedVersion);
+        todo.softDelete();
+        events.publishAfterCommit(TodoChangeEvent.Type.DELETED, todo);
     }
 
     private Todo findActive(UUID id) {
         return repository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TodoNotFoundException(id));
+    }
+
+    private void verifyVersion(Todo todo, long expectedVersion) {
+        if (todo.version() != expectedVersion) {
+            throw new TodoRuleViolationException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    "TODO_VERSION_CONFLICT",
+                    "The TODO changed after it was loaded; reload the current version and try again"
+            );
+        }
     }
 
     private String normalizeDescription(String description) {

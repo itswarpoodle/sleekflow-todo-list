@@ -17,6 +17,7 @@ public record TodoResponse(
         LocalDate dueDate,
         Todo.Status status,
         Todo.Priority priority,
+        long version,
         Set<UUID> dependencyIds,
         boolean blocked,
         RecurrenceRule recurrence,
@@ -33,6 +34,7 @@ public record TodoResponse(
                 todo.dueDate(),
                 todo.status(),
                 todo.priority(),
+                todo.version(),
                 todo.dependencies().stream()
                         .map(Todo::id)
                         .sorted(Comparator.comparing(UUID::toString))

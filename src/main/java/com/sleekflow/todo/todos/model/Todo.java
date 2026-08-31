@@ -237,6 +237,10 @@ public class Todo {
         return priority;
     }
 
+    public long version() {
+        return version;
+    }
+
     public Instant createdAt() {
         return createdAt;
     }

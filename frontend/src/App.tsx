@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createTodo, deleteTodo, listTodos, TodoApiError, updateTodo } from './api'
+import { createTodo, deleteTodo, getTodo, listTodos, TodoApiError, updateTodo } from './api'
 import TodoForm from './TodoForm'
 import TodoList from './TodoList'
 import type { Todo, TodoInput, TodoPage, TodoPriority, TodoQuery, TodoStatus } from './types'
@@ -25,6 +25,24 @@ export default function App() {
   const [formError, setFormError] = useState<TodoApiError | null>(null)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // SSE carries only invalidations. Refetching the current bounded query keeps
+  // filters and pagination authoritative and avoids a second client-side cache.
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return
+    const events = new EventSource('/api/todos/events')
+    let refreshTimer: number | undefined
+    const refresh = () => {
+      window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => setRevision((current) => current + 1), 100)
+    }
+    events.addEventListener('todo-change', refresh)
+    return () => {
+      window.clearTimeout(refreshTimer)
+      events.removeEventListener('todo-change', refresh)
+      events.close()
+    }
+  }, [])
 
   // The server owns filtering, sorting, and pagination; the client keeps one bounded page.
   useEffect(() => {
@@ -113,9 +131,23 @@ export default function App() {
     setSaving(true)
     setFormError(null)
     try {
-      if (editingTodo) await updateTodo(editingTodo.id, input)
+      if (editingTodo) await updateTodo(editingTodo.id, editingTodo.version, input)
       else await createTodo(input)
       closeEditor()
+      setRevision((current) => current + 1)
+    } catch (error) {
+      setFormError(error instanceof TodoApiError ? error : new TodoApiError(errorMessage(error)))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const reloadEditingTodo = async () => {
+    if (!editingTodo) return
+    setSaving(true)
+    try {
+      setEditingTodo(await getTodo(editingTodo.id))
+      setFormError(null)
       setRevision((current) => current + 1)
     } catch (error) {
       setFormError(error instanceof TodoApiError ? error : new TodoApiError(errorMessage(error)))
@@ -128,7 +160,7 @@ export default function App() {
     setDeleting(true)
     setListError(null)
     try {
-      await deleteTodo(todo.id)
+      await deleteTodo(todo.id, todo.version)
       setConfirmingDeleteId(null)
       // Avoid leaving the user on an empty trailing page after deleting its last item.
       if (page.content.length === 1 && query.page > 0) {
@@ -138,6 +170,10 @@ export default function App() {
       }
     } catch (error) {
       setListError(errorMessage(error))
+      if (error instanceof TodoApiError && error.code === 'TODO_VERSION_CONFLICT') {
+        setConfirmingDeleteId(null)
+        setRevision((current) => current + 1)
+      }
     } finally {
       setDeleting(false)
     }
@@ -323,9 +359,10 @@ export default function App() {
             <TodoForm
               availableDependencies={availableDependencies}
               error={formError}
-              key={editingTodo?.id || 'new'}
+              key={editingTodo ? `${editingTodo.id}-${editingTodo.version}` : 'new'}
               onCancel={closeEditor}
               onDependencySearch={setDependencySearch}
+              onReloadConflict={reloadEditingTodo}
               onSubmit={saveTodo}
               saving={saving}
               todo={editingTodo}

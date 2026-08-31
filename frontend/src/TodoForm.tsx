@@ -16,6 +16,7 @@ type TodoFormProps = {
   saving: boolean
   error: TodoApiError | null
   onCancel: () => void
+  onReloadConflict: () => Promise<void>
   onDependencySearch: (query: string) => void
   onSubmit: (input: TodoInput) => Promise<void>
 }
@@ -26,6 +27,7 @@ export default function TodoForm({
   saving,
   error,
   onCancel,
+  onReloadConflict,
   onDependencySearch,
   onSubmit,
 }: TodoFormProps) {
@@ -99,6 +101,11 @@ export default function TodoForm({
         <div className="form-error" role="alert">
           <strong>{clientError || error?.message}</strong>
           {error?.code && <span>{error.code.replaceAll('_', ' ')}</span>}
+          {error?.code === 'TODO_VERSION_CONFLICT' && (
+            <button className="secondary-button" disabled={saving} onClick={onReloadConflict} type="button">
+              Reload current TODO
+            </button>
+          )}
         </div>
       )}
 

@@ -1,0 +1,9 @@
+.git
+.github
+.idea
+.vscode
+frontend
+target
+test-results
+playwright-report
+*.iml

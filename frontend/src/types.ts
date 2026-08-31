@@ -17,6 +17,7 @@ export type Todo = {
   dueDate: string | null
   status: TodoStatus
   priority: TodoPriority
+  version: number
   dependencyIds: string[]
   blocked: boolean
   recurrence: RecurrenceRule | null

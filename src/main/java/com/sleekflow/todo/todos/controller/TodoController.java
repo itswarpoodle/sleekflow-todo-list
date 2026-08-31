@@ -5,13 +5,17 @@ import com.sleekflow.todo.todos.dto.CreateTodoRequest;
 import com.sleekflow.todo.todos.dto.PageResponse;
 import com.sleekflow.todo.todos.dto.TodoResponse;
 import com.sleekflow.todo.todos.dto.UpdateTodoRequest;
+import com.sleekflow.todo.todos.exception.TodoRuleViolationException;
 import com.sleekflow.todo.todos.model.Todo;
 import com.sleekflow.todo.todos.service.TodoService;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -64,8 +69,11 @@ public class TodoController {
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             )
     })
-    public TodoResponse findById(@PathVariable UUID id) {
-        return TodoResponse.from(service.findById(id));
+    public ResponseEntity<TodoResponse> findById(@PathVariable UUID id) {
+        var todo = service.findById(id);
+        return ResponseEntity.ok()
+                .eTag(entityTag(todo.version()))
+                .body(TodoResponse.from(todo));
     }
 
     @PostMapping
@@ -92,7 +100,9 @@ public class TodoController {
                 request.dependencyIds(),
                 request.recurrence()
         ));
-        return ResponseEntity.created(URI.create("/api/todos/" + created.id())).body(created);
+        return ResponseEntity.created(URI.create("/api/todos/" + created.id()))
+                .eTag(entityTag(created.version()))
+                .body(created);
     }
 
     @PutMapping("/{id}")
@@ -112,14 +122,27 @@ public class TodoController {
                     responseCode = "409",
                     description = "Dependency or lifecycle rule violated",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "412",
+                    description = "If-Match refers to a stale TODO version",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "428",
+                    description = "If-Match header is required",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             )
     })
-    public TodoResponse update(
+    public ResponseEntity<TodoResponse> update(
             @PathVariable UUID id,
+            @Parameter(required = true, description = "Strong ETag from the latest TODO representation")
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @Valid @RequestBody UpdateTodoRequest request
     ) {
-        return TodoResponse.from(service.update(
+        var updated = service.update(
                 id,
+                requiredVersion(ifMatch),
                 request.name(),
                 request.description(),
                 request.dueDate(),
@@ -127,7 +150,10 @@ public class TodoController {
                 request.priority(),
                 request.dependencyIds(),
                 request.recurrence()
-        ));
+        );
+        return ResponseEntity.ok()
+                .eTag(entityTag(updated.version()))
+                .body(TodoResponse.from(updated));
     }
 
     @DeleteMapping("/{id}")
@@ -137,10 +163,54 @@ public class TodoController {
                     responseCode = "404",
                     description = "TODO not found",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "412",
+                    description = "If-Match refers to a stale TODO version",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "428",
+                    description = "If-Match header is required",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))
             )
     })
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        service.delete(id);
+    public ResponseEntity<Void> delete(
+            @PathVariable UUID id,
+            @Parameter(required = true, description = "Strong ETag from the latest TODO representation")
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
+    ) {
+        service.delete(id, requiredVersion(ifMatch));
         return ResponseEntity.noContent().build();
+    }
+
+    private long requiredVersion(String ifMatch) {
+        if (ifMatch == null || ifMatch.isBlank()) {
+            throw new TodoRuleViolationException(
+                    HttpStatus.PRECONDITION_REQUIRED,
+                    "IF_MATCH_REQUIRED",
+                    "If-Match is required for updates and deletion"
+            );
+        }
+        if (ifMatch.length() < 3 || ifMatch.charAt(0) != '"' || ifMatch.charAt(ifMatch.length() - 1) != '"') {
+            throw invalidIfMatch();
+        }
+        try {
+            return Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1));
+        } catch (NumberFormatException exception) {
+            throw invalidIfMatch();
+        }
+    }
+
+    private TodoRuleViolationException invalidIfMatch() {
+        return new TodoRuleViolationException(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_IF_MATCH",
+                "If-Match must contain one strong numeric ETag, for example \"0\""
+        );
+    }
+
+    private String entityTag(long version) {
+        return "\"" + version + "\"";
     }
 }

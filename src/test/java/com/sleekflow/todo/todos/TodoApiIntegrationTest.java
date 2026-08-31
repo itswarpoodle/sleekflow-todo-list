@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,6 +38,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -84,12 +87,14 @@ class TodoApiIntegrationTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.matchesPattern("/api/todos/.+")))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"0\""))
                 .andExpect(jsonPath("$.id", notNullValue()))
                 .andExpect(jsonPath("$.name").value("Prepare assessment demo"))
                 .andExpect(jsonPath("$.description").value("Walk through the core requirements"))
                 .andExpect(jsonPath("$.dueDate").value("2026-09-30"))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.version").value(0))
                 .andExpect(jsonPath("$.dependencyIds", hasSize(0)))
                 .andExpect(jsonPath("$.blocked").value(false))
                 .andExpect(jsonPath("$.recurrence").value(nullValue()))
@@ -102,6 +107,7 @@ class TodoApiIntegrationTest {
 
         mockMvc.perform(get("/api/todos/{id}", id))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"0\""))
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.priority").value("HIGH"));
 
@@ -137,6 +143,7 @@ class TodoApiIntegrationTest {
                 """);
 
         mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(id))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -153,11 +160,89 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.description").value("Updated description"))
                 .andExpect(jsonPath("$.dueDate").value("2026-10-15"))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.priority").value("LOW"));
+                .andExpect(jsonPath("$.priority").value("LOW"))
+                .andExpect(jsonPath("$.version").value(1))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""));
 
         mockMvc.perform(get("/api/todos/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Updated name"));
+    }
+
+    @Test
+    void requiresAValidCurrentIfMatchForMutations() throws Exception {
+        String id = createTodo("""
+                {"name":"Versioned TODO"}
+                """);
+        String updateBody = """
+                {
+                  "name":"Versioned TODO updated",
+                  "status":"NOT_STARTED",
+                  "priority":"MEDIUM"
+                }
+                """;
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .contentType("application/json")
+                        .content(updateBody))
+                .andExpect(status().isPreconditionRequired())
+                .andExpect(jsonPath("$.code").value("IF_MATCH_REQUIRED"));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, "not-an-etag")
+                        .contentType("application/json")
+                        .content(updateBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_IF_MATCH"));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
+                        .contentType("application/json")
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
+                        .contentType("application/json")
+                        .content(updateBody))
+                .andExpect(status().isPreconditionFailed())
+                .andExpect(jsonPath("$.code").value("TODO_VERSION_CONFLICT"));
+
+        mockMvc.perform(delete("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, "\"0\""))
+                .andExpect(status().isPreconditionFailed())
+                .andExpect(jsonPath("$.code").value("TODO_VERSION_CONFLICT"));
+
+        mockMvc.perform(delete("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, "\"1\""))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void streamsOnlyCommittedTodoChangesAsServerSentEvents() throws Exception {
+        var stream = mockMvc.perform(get("/api/todos/events").accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        String id = createTodo("""
+                {"name":"Cross-tab update"}
+                """);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
+            while (!stream.getResponse().getContentAsString().contains("event:todo-change")) {
+                Thread.sleep(20);
+            }
+        });
+        String events = stream.getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(events)
+                .contains("event:connected")
+                .contains("event:todo-change")
+                .contains("\"type\":\"CREATED\"")
+                .contains("\"todoId\":\"" + id + "\"")
+                .contains("\"version\":0");
+        stream.getRequest().getAsyncContext().complete();
     }
 
     @Test
@@ -169,7 +254,8 @@ class TodoApiIntegrationTest {
                 {"name":"Delete without data loss","priority":"HIGH"}
                 """);
 
-        mockMvc.perform(delete("/api/todos/{id}", deletedId))
+        mockMvc.perform(delete("/api/todos/{id}", deletedId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(deletedId)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/todos/{id}", deletedId))
@@ -235,6 +321,7 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.path").value("/api/todos/" + missingId));
 
         mockMvc.perform(put("/api/todos/{id}", missingId)
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -246,7 +333,8 @@ class TodoApiIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TODO_NOT_FOUND"));
 
-        mockMvc.perform(delete("/api/todos/{id}", missingId))
+        mockMvc.perform(delete("/api/todos/{id}", missingId)
+                        .header(HttpHeaders.IF_MATCH, "\"0\""))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TODO_NOT_FOUND"));
     }
@@ -295,6 +383,7 @@ class TodoApiIntegrationTest {
                 {"name":"First"}
                 """);
         mockMvc.perform(put("/api/todos/{id}", firstId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(firstId))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -315,6 +404,7 @@ class TodoApiIntegrationTest {
                 """.formatted(secondId));
 
         mockMvc.perform(put("/api/todos/{id}", firstId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(firstId))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -338,6 +428,7 @@ class TodoApiIntegrationTest {
                 """.formatted(prerequisiteId));
 
         mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(dependentId))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -351,6 +442,7 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value("TODO_BLOCKED"));
 
         mockMvc.perform(put("/api/todos/{id}", prerequisiteId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(prerequisiteId))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -363,6 +455,7 @@ class TodoApiIntegrationTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(dependentId))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -486,6 +579,7 @@ class TodoApiIntegrationTest {
                 }
                 """);
         int requestCount = 8;
+        String etag = currentEtag(id);
         var ready = new CountDownLatch(requestCount);
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(requestCount);
@@ -496,6 +590,7 @@ class TodoApiIntegrationTest {
                         ready.countDown();
                         start.await(10, TimeUnit.SECONDS);
                         return mockMvc.perform(put("/api/todos/{id}", id)
+                                        .header(HttpHeaders.IF_MATCH, etag)
                                         .contentType("application/json")
                                         .content("""
                                                 {
@@ -524,7 +619,7 @@ class TodoApiIntegrationTest {
 
             org.assertj.core.api.Assertions.assertThat(statuses)
                     .contains(200)
-                    .allMatch(code -> code == 200 || code == 409);
+                    .allMatch(code -> code == 200 || code == 409 || code == 412);
             org.assertj.core.api.Assertions.assertThat(
                     repository.findAll().stream()
                             .filter(todo -> UUID.fromString(id).equals(todo.previousOccurrenceId()))
@@ -750,6 +845,7 @@ class TodoApiIntegrationTest {
                 """.formatted(name, dueDate, recurrence));
 
         mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(id))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -779,6 +875,7 @@ class TodoApiIntegrationTest {
 
     private void updateRecurringTodo(String id, String statusValue) throws Exception {
         mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(id))
                         .contentType("application/json")
                         .content(recurringUpdateBody(statusValue)))
                 .andExpect(status().isOk());
@@ -804,6 +901,11 @@ class TodoApiIntegrationTest {
                 .andReturn();
 
         return JsonPath.read(response.getResponse().getContentAsString(), "$.id");
+    }
+
+    private String currentEtag(String id) {
+        var version = repository.findById(UUID.fromString(id)).orElseThrow().version();
+        return "\"" + version + "\"";
     }
 
     private List<String> listNames(String sort, String direction) throws Exception {

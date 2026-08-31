@@ -606,6 +606,11 @@ h1 {
   letter-spacing: 0.05em;
 }
 
+.form-error button {
+  justify-self: start;
+  margin-top: 6px;
+}
+
 .field-error {
   display: block;
   margin-top: 6px;
