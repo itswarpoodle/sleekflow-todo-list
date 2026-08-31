@@ -37,7 +37,7 @@ flowchart LR
 
 - `GET`, `POST`, `PUT`, and `DELETE` use the REST API. The list endpoint performs filtering, domain sorting, and bounded pagination in PostgreSQL.
 - Each TODO version is exposed as a strong `ETag`. Mutations require the matching value in `If-Match`; stale clients receive `412 TODO_VERSION_CONFLICT` and reload before retrying.
-- Due-date, recurrence, dependency, and soft-deletion rules run inside service transactions. Newly assigned past due dates are rejected, while unchanged overdue dates remain editable. The database adds optimistic-version and unique-successor safeguards.
+- Due-date, recurrence, dependency, and soft-deletion rules run inside service transactions. Newly assigned past due dates are rejected, while unchanged overdue dates remain editable. Incomplete prerequisites block both progress and completion even if archived or deleted, but the dependent TODO can still be edited while not started, archived, or deleted. A completed prerequisite remains satisfied after soft deletion because its status is retained. The database adds optimistic-version and unique-successor safeguards.
 - Change events are registered during the transaction but emitted only after commit. An event contains an ID, change type, TODO ID, and version, not a second copy of TODO state.
 - The in-memory SSE broadcaster intentionally targets one application instance. A multi-instance deployment would require a transactional outbox and shared event transport.
 - Docker Compose starts PostgreSQL, the backend, and the production Nginx frontend in health-check order. GitHub Actions runs backend integration tests, frontend tests and build, Playwright, and image builds.

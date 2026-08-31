@@ -54,6 +54,8 @@ export default function TodoForm({
   // A TODO cannot depend on itself. Candidate matching is server-backed so the
   // selector remains useful when the shared list contains thousands of TODOs.
   const dependencies = availableDependencies.filter((candidate) => candidate.id !== todo?.id)
+  const blocksProgress = Boolean(todo?.blocked) || dependencyIds.some((id) =>
+    dependencies.some((dependency) => dependency.id === id && dependency.status !== 'COMPLETED'))
 
   const toggleDependency = (id: string) => {
     setDependencyIds((current) => current.includes(id)
@@ -75,6 +77,10 @@ export default function TodoForm({
     }
     if (dueDate && dueDate < today && dueDate !== originalDueDate) {
       setClientError('Due date must be today or later.')
+      return
+    }
+    if (blocksProgress && (status === 'IN_PROGRESS' || status === 'COMPLETED')) {
+      setClientError('Complete all prerequisites before starting or completing this TODO.')
       return
     }
     if (frequency === 'CUSTOM' && Number(interval) < 1) {
@@ -173,8 +179,19 @@ export default function TodoForm({
         <div className="field">
           <label htmlFor="todo-status">Status</label>
           <select id="todo-status" onChange={(event) => setStatus(event.target.value as TodoStatus)} value={status}>
-            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {Object.entries(statusLabels).map(([value, label]) => (
+              <option
+                disabled={blocksProgress && (value === 'IN_PROGRESS' || value === 'COMPLETED')}
+                key={value}
+                value={value}
+              >
+                {label}
+              </option>
+            ))}
           </select>
+          {blocksProgress && (
+            <small className="field-hint">Complete all prerequisites before starting or completing this TODO.</small>
+          )}
         </div>
         <div className="field">
           <label htmlFor="todo-recurrence">Recurrence</label>

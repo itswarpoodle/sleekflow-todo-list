@@ -64,9 +64,11 @@ test('runs the cumulative core workflow in the browser', async ({ page, request 
     await expect(card(page, dependent).getByText('Blocked', { exact: true })).toBeVisible()
 
     editor = await openEditor(page, dependent)
-    await editor.getByLabel('Status', { exact: true }).selectOption('IN_PROGRESS')
-    await editor.getByRole('button', { name: 'Save changes' }).click()
-    await expect(editor.getByText(/blocked TODO cannot be moved/i)).toBeVisible()
+    const blockedStatus = editor.getByLabel('Status', { exact: true })
+    await expect(blockedStatus.getByRole('option', { name: 'In progress' })).toBeDisabled()
+    await expect(blockedStatus.getByRole('option', { name: 'Completed' })).toBeDisabled()
+    await expect(blockedStatus.getByRole('option', { name: 'Archived' })).toBeEnabled()
+    await expect(editor.getByText(/before starting or completing this TODO/i)).toBeVisible()
     await editor.getByRole('button', { name: 'Cancel' }).click()
 
     editor = await openEditor(page, prerequisite)
@@ -74,6 +76,7 @@ test('runs the cumulative core workflow in the browser', async ({ page, request 
     await editor.getByRole('button', { name: 'Save changes' }).click()
 
     editor = await openEditor(page, dependent)
+    await expect(editor.getByLabel('Status', { exact: true }).getByRole('option', { name: 'Completed' })).toBeEnabled()
     await editor.getByLabel('Status', { exact: true }).selectOption('IN_PROGRESS')
     await editor.getByRole('button', { name: 'Save changes' }).click()
     await expect(card(page, dependent).getByText('In progress', { exact: true })).toBeVisible()

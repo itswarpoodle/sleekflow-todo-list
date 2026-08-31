@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -30,13 +31,14 @@ public class TodoLifecycleService {
     }
 
     /**
-     * Resolves only active dependencies and reports every missing ID together so
-     * callers receive one useful validation response instead of failing repeatedly.
+     * Resolves active dependencies and permits an existing soft-deleted dependency
+     * to remain attached. This keeps a dependent TODO editable or archivable without
+     * allowing new references to deleted records.
      */
-    public Set<Todo> resolveDependencies(UUID todoId, Set<UUID> dependencyIds) {
+    public Set<Todo> resolveDependencies(Todo todo, Set<UUID> dependencyIds) {
         var requestedIds = dependencyIds == null ? Set.<UUID>of() : dependencyIds;
 
-        if (todoId != null && requestedIds.contains(todoId)) {
+        if (todo != null && requestedIds.contains(todo.id())) {
             throw new TodoRuleViolationException(
                     HttpStatus.BAD_REQUEST,
                     "SELF_DEPENDENCY",
@@ -44,11 +46,17 @@ public class TodoLifecycleService {
             );
         }
 
-        var dependencies = repository.findAllByIdInAndDeletedAtIsNull(requestedIds);
+        var dependencies = new ArrayList<>(repository.findAllByIdInAndDeletedAtIsNull(requestedIds));
+        var resolvedIds = dependencies.stream().map(Todo::id).collect(java.util.stream.Collectors.toSet());
+        if (todo != null) {
+            todo.dependencies().stream()
+                    .filter(dependency -> requestedIds.contains(dependency.id()))
+                    .filter(dependency -> resolvedIds.add(dependency.id()))
+                    .forEach(dependencies::add);
+        }
         if (dependencies.size() != requestedIds.size()) {
-            var foundIds = dependencies.stream().map(Todo::id).collect(java.util.stream.Collectors.toSet());
             var missingIds = requestedIds.stream()
-                    .filter(id -> !foundIds.contains(id))
+                    .filter(id -> !resolvedIds.contains(id))
                     .sorted(Comparator.comparing(UUID::toString))
                     .map(UUID::toString)
                     .toList();
@@ -59,7 +67,7 @@ public class TodoLifecycleService {
             );
         }
 
-        dependencies.sort(Comparator.comparing(todo -> todo.id().toString()));
+        dependencies.sort(Comparator.comparing(dependency -> dependency.id().toString()));
         return new LinkedHashSet<>(dependencies);
     }
 
@@ -78,11 +86,12 @@ public class TodoLifecycleService {
     }
 
     public void validateStatus(Todo.Status status, Collection<Todo> dependencies) {
-        if (status == Todo.Status.IN_PROGRESS && isBlocked(dependencies)) {
+        if ((status == Todo.Status.IN_PROGRESS || status == Todo.Status.COMPLETED)
+                && isBlocked(dependencies)) {
             throw new TodoRuleViolationException(
                     HttpStatus.CONFLICT,
                     "TODO_BLOCKED",
-                    "A blocked TODO cannot be moved to IN_PROGRESS"
+                    "A blocked TODO cannot be moved to IN_PROGRESS or COMPLETED"
             );
         }
     }

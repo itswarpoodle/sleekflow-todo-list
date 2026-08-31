@@ -70,7 +70,8 @@
 - Preserve calendar-safe recurrence calculations and exactly-one successor creation.
 - Preserve dependency validation for missing, self-referencing, and cyclic dependencies.
 - Reject newly assigned past due dates while allowing existing overdue dates to remain unchanged.
-- Preserve the rule that blocked TODOs cannot move to `IN_PROGRESS`.
+- Preserve the rule that blocked TODOs cannot move to `IN_PROGRESS` or `COMPLETED`, while ordinary `NOT_STARTED` edits, archiving, and deletion remain available.
+- Treat only `COMPLETED` dependencies as satisfied; archiving or deleting an incomplete prerequisite does not unblock its dependents.
 - Preserve optimistic locking and the database uniqueness guard for concurrent recurring completion.
 - Validate at system boundaries and return consistent, useful error responses.
 - Avoid silently swallowing errors unless the UI has a deliberate safe fallback.
@@ -105,7 +106,7 @@
 - Run `npm run build` from `frontend/` before handoff or commit.
 - Run `git diff --check` before committing.
 - Test meaningful core behaviour and edge cases rather than chasing superficial coverage.
-- Cover CRUD, future-only due-date assignment, overdue editing, validation, soft deletion, dependencies, cycle rejection, blocked transitions, recurrence dates, repeated and concurrent completion, filtering, sorting, and pagination.
+- Cover CRUD, future-only due-date assignment, overdue editing, validation, soft deletion, dependencies, cycle rejection, blocked progress and completion, permitted blocked-task edits and retirement, recurrence dates, repeated and concurrent completion, filtering, sorting, and pagination.
 - Keep large-list verification representative of at least 10,000 TODOs.
 - Test every completed milestone in a real browser.
 - Make browser testing cumulative: completing a later milestone must regress earlier milestone workflows.

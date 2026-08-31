@@ -114,7 +114,7 @@ The script is idempotent. It replaces only six fixed demo TODOs and any recurrin
 ## Five-minute demo route
 
 1. Open the list and point out all four statuses, three priorities, due dates, recurrence, and the blocked badge.
-2. Filter for blocked TODOs, then edit **Present dependency workflow** and try to move it to **In progress**. Show the readable `TODO_BLOCKED` response.
+2. Filter for blocked TODOs, then edit **Present dependency workflow**. Show that both **In progress** and **Completed** are unavailable until its prerequisite is complete.
 3. Complete **Confirm live demo environment**, return to the dependent TODO, and move it to **In progress** successfully.
 4. Complete **Run weekly product review** and show the automatically created occurrence due one week later.
 5. Create a disposable TODO, edit it, then delete it. Explain that it leaves active views while its database row is retained with `deleted_at`.
@@ -136,7 +136,7 @@ Run `scripts/demo-data.sql` again whenever the demo needs to return to its initi
 
 Names are required. Descriptions and due dates are optional. A newly assigned due date must be today or later; the UI limits the date picker and the API rejects bypass attempts with `TODO_DUE_DATE_IN_PAST`. An existing overdue TODO may retain its original date so it can still be completed, archived, or otherwise edited without forced rescheduling. Create requests default to `NOT_STARTED` and `MEDIUM` when status and priority are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads. `ARCHIVED` is visible and is not deletion.
 
-Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot move to `IN_PROGRESS`.
+Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. New dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot move to `IN_PROGRESS` or `COMPLETED`. Archiving or deleting an incomplete prerequisite does not satisfy it; a prerequisite completed before soft deletion remains satisfied because its status is retained. Blocked TODOs can still be edited while `NOT_STARTED`, archived, or deleted. Existing soft-deleted dependency links may be retained during those permitted edits, but new links to deleted TODOs are rejected.
 
 Recurring TODOs use a `recurrence` object. `DAILY`, `WEEKLY`, and `MONTHLY` are canonical one-unit rules. `CUSTOM` requires a positive `interval` and a `unit` of `DAYS`, `WEEKS`, or `MONTHS`. Recurrence requires a due date. The first transition to `COMPLETED` creates one `NOT_STARTED` successor with a calendar-adjusted due date and a `previousOccurrenceId` link.
 
@@ -188,7 +188,7 @@ npm run test:e2e
 
 Playwright starts the source backend and frontend when `E2E_BASE_URL` is absent. To exercise an already running production-style stack, use `E2E_BASE_URL=http://localhost:5173 npm run test:e2e`.
 
-The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD, defaults, future-only due-date assignment, overdue editing, validation, error envelopes, durable deletion, missing resources, multiple dependencies, cycle rejection, blocked transitions, all recurrence schedules, repeat and concurrent completion, explicit version preconditions, committed SSE publication, filters, name search, domain sorting, stable pagination, the 10,000-row path, index use, and the published OpenAPI contract. Playwright covers the cumulative core workflow, browser enforcement of future-only due dates, two-tab synchronization, and stale-editor recovery.
+The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD, defaults, future-only due-date assignment, overdue editing, validation, error envelopes, durable deletion, missing resources, multiple dependencies, cycle rejection, blocked progress and completion, permitted blocked-task edits and retirement, all recurrence schedules, repeat and concurrent completion, explicit version preconditions, committed SSE publication, filters, name search, domain sorting, stable pagination, the 10,000-row path, index use, and the published OpenAPI contract. Playwright covers the cumulative core workflow, browser enforcement of dependency and due-date rules, two-tab synchronization, and stale-editor recovery.
 
 ## Repository guide
 

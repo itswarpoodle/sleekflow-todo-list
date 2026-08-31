@@ -71,7 +71,7 @@ export default function TodoList({
             </dl>
 
             {todo.blocked && (
-              <p className="blocked-note">Complete all prerequisites before moving this TODO to In progress.</p>
+              <p className="blocked-note">Complete all prerequisites before starting or completing this TODO.</p>
             )}
           </div>
 

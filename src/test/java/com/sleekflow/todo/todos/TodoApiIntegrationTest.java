@@ -468,10 +468,23 @@ class TodoApiIntegrationTest {
     }
 
     @Test
-    void blocksInProgressUntilEveryDependencyIsCompleted() throws Exception {
+    void blocksProgressAndCompletionUntilEveryDependencyIsCompleted() throws Exception {
         String prerequisiteId = createTodo("""
                 {"name":"Prerequisite"}
                 """);
+
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Directly completed dependent",
+                                  "status":"COMPLETED",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TODO_BLOCKED"));
+
         String dependentId = createTodo("""
                 {"name":"Dependent","dependencyIds":["%s"]}
                 """.formatted(prerequisiteId));
@@ -489,6 +502,52 @@ class TodoApiIntegrationTest {
                                 """.formatted(prerequisiteId)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TODO_BLOCKED"));
+
+        mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(dependentId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Dependent",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TODO_BLOCKED"))
+                .andExpect(jsonPath("$.message").value(
+                        "A blocked TODO cannot be moved to IN_PROGRESS or COMPLETED"));
+
+        mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(dependentId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Edited while blocked",
+                                  "status":"NOT_STARTED",
+                                  "priority":"HIGH",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Edited while blocked"))
+                .andExpect(jsonPath("$.priority").value("HIGH"))
+                .andExpect(jsonPath("$.blocked").value(true));
+
+        mockMvc.perform(put("/api/todos/{id}", dependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(dependentId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Edited while blocked",
+                                  "status":"ARCHIVED",
+                                  "priority":"HIGH",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(prerequisiteId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
 
         mockMvc.perform(put("/api/todos/{id}", prerequisiteId)
                         .header(HttpHeaders.IF_MATCH, currentEtag(prerequisiteId))
@@ -516,6 +575,87 @@ class TodoApiIntegrationTest {
                                 """.formatted(prerequisiteId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.blocked").value(false));
+    }
+
+    @Test
+    void archivedOrDeletedPrerequisitesRemainUnsatisfiedButDoNotTrapDependents() throws Exception {
+        String archivedPrerequisiteId = createTodo("""
+                {"name":"Archived prerequisite"}
+                """);
+        String archivedDependentId = createTodo("""
+                {"name":"Archived dependent","dependencyIds":["%s"]}
+                """.formatted(archivedPrerequisiteId));
+
+        mockMvc.perform(put("/api/todos/{id}", archivedPrerequisiteId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(archivedPrerequisiteId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Archived prerequisite",
+                                  "status":"ARCHIVED",
+                                  "priority":"MEDIUM"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/todos/{id}", archivedDependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(archivedDependentId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Archived dependent",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(archivedPrerequisiteId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TODO_BLOCKED"));
+
+        String deletedPrerequisiteId = createTodo("""
+                {"name":"Deleted prerequisite"}
+                """);
+        String deletedDependentId = createTodo("""
+                {"name":"Deleted dependent","dependencyIds":["%s"]}
+                """.formatted(deletedPrerequisiteId));
+
+        mockMvc.perform(delete("/api/todos/{id}", deletedPrerequisiteId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(deletedPrerequisiteId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(put("/api/todos/{id}", deletedDependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(deletedDependentId))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Archive blocked dependent",
+                                  "status":"ARCHIVED",
+                                  "priority":"MEDIUM",
+                                  "dependencyIds":["%s"]
+                                }
+                                """.formatted(deletedPrerequisiteId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"))
+                .andExpect(jsonPath("$.blocked").value(true));
+
+        mockMvc.perform(delete("/api/todos/{id}", deletedDependentId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(deletedDependentId)))
+                .andExpect(status().isNoContent());
+
+        String completedPrerequisiteId = createTodo("""
+                {"name":"Completed then deleted prerequisite","status":"COMPLETED"}
+                """);
+        String completedDependentId = createTodo("""
+                {"name":"Unblocked retained history","dependencyIds":["%s"]}
+                """.formatted(completedPrerequisiteId));
+
+        mockMvc.perform(delete("/api/todos/{id}", completedPrerequisiteId)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(completedPrerequisiteId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/todos/{id}", completedDependentId))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.blocked").value(false));
     }
 

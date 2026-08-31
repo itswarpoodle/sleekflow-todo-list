@@ -145,7 +145,7 @@ public class TodoService {
         verifyVersion(todo, expectedVersion);
         lifecycle.validateDueDate(dueDate, todo.dueDate());
         var previousStatus = todo.status();
-        var dependencies = lifecycle.resolveDependencies(id, dependencyIds);
+        var dependencies = lifecycle.resolveDependencies(todo, dependencyIds);
         lifecycle.validateUpdate(todo, dependencies, status);
         var recurrence = lifecycle.normalizeRecurrence(recurrenceRule, dueDate);
         todo.update(name.trim(), normalizeDescription(description), dueDate, status, priority, recurrence);

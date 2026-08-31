@@ -87,6 +87,30 @@ test('loads the complete TODO summary', async () => {
   expect(within(card as HTMLElement).getByText('High')).toBeInTheDocument()
 })
 
+test('disables progress and completion for a blocked TODO but still allows archiving', async () => {
+  const blockedTodo: Todo = {
+    ...prerequisite,
+    id: 'todo-2',
+    name: 'Blocked implementation',
+    status: 'NOT_STARTED',
+    dependencyIds: ['todo-3'],
+    blocked: true,
+  }
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(todoPage([blockedTodo])))
+
+  render(<App />)
+  await screen.findByText('Blocked implementation')
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+  const editor = screen.getByRole('dialog')
+  expect(within(editor).getByRole('option', { name: 'In progress' })).toBeDisabled()
+  expect(within(editor).getByRole('option', { name: 'Completed' })).toBeDisabled()
+  expect(within(editor).getByRole('option', { name: 'Archived' })).not.toBeDisabled()
+  expect(within(editor).getByText(
+    'Complete all prerequisites before starting or completing this TODO.',
+  )).toBeInTheDocument()
+})
+
 test('refetches the current bounded page after a real-time invalidation', async () => {
   vi.stubGlobal('EventSource', FakeEventSource)
   let changed = false
