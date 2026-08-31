@@ -24,6 +24,16 @@ public class TodoEventStream {
     private final Map<UUID, SseEmitter> clients = new ConcurrentHashMap<>();
     private final AtomicLong sequence = new AtomicLong();
 
+    /** Creates an empty instance-local client registry and event sequence. */
+    public TodoEventStream() {
+    }
+
+    /**
+     * Registers a browser connection and sends an initial event so the caller knows
+     * the stream is established. Completion and error callbacks remove stale clients.
+     *
+     * @return long-lived emitter for one browser connection
+     */
     public SseEmitter subscribe() {
         var clientId = UUID.randomUUID();
         var emitter = new SseEmitter(0L);
@@ -44,6 +54,10 @@ public class TodoEventStream {
     /**
      * Defers publication until the surrounding transaction commits. The entity
      * reference is intentional so Hibernate's committed version reaches the event.
+     *
+     * @param type committed change type
+     * @param todo changed aggregate
+     * @throws IllegalStateException when called outside a transaction
      */
     public void publishAfterCommit(TodoChangeEvent.Type type, Todo todo) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -57,11 +71,13 @@ public class TodoEventStream {
         });
     }
 
+    /** Sends a lightweight comment to keep intermediaries from closing idle streams. */
     @Scheduled(fixedDelayString = "${todo.events.heartbeat-ms:25000}")
     void heartbeat() {
         clients.forEach((clientId, emitter) -> send(clientId, emitter, SseEmitter.event().comment("heartbeat")));
     }
 
+    /** Sends one invalidation to every currently registered client. */
     private void broadcast(TodoChangeEvent event) {
         clients.forEach((clientId, emitter) -> send(
                 clientId,
@@ -73,6 +89,9 @@ public class TodoEventStream {
         ));
     }
 
+    /**
+     * Sends an event and removes the client when its connection is no longer writable.
+     */
     private void send(UUID clientId, SseEmitter emitter, SseEmitter.SseEventBuilder event) {
         try {
             emitter.send(event);

@@ -10,6 +10,23 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Complete API representation of an active TODO.
+ *
+ * @param id stable identifier
+ * @param name display name
+ * @param description optional supporting detail
+ * @param dueDate optional calendar due date
+ * @param status lifecycle status
+ * @param priority domain priority
+ * @param version optimistic-lock version used in the ETag
+ * @param dependencyIds prerequisite TODO identifiers
+ * @param blocked whether any prerequisite is not completed
+ * @param recurrence optional normalized recurrence rule
+ * @param previousOccurrenceId source occurrence for a generated recurring TODO
+ * @param createdAt creation timestamp
+ * @param updatedAt latest persistence timestamp
+ */
 public record TodoResponse(
         UUID id,
         String name,
@@ -26,6 +43,13 @@ public record TodoResponse(
         Instant updatedAt
 ) {
 
+    /**
+     * Builds the external read model and derives dependency state from the aggregate.
+     * Dependency IDs are sorted to keep serialized responses deterministic.
+     *
+     * @param todo hydrated domain aggregate
+     * @return API response
+     */
     public static TodoResponse from(Todo todo) {
         return new TodoResponse(
                 todo.id(),

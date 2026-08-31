@@ -32,16 +32,39 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * HTTP boundary for TODO queries and mutations. The controller translates transport
+ * contracts and ETags while delegating lifecycle decisions to {@link TodoService}.
+ */
 @RestController
 @RequestMapping("/api/todos")
 public class TodoController {
 
     private final TodoService service;
 
+    /**
+     * Creates the REST controller.
+     *
+     * @param service transactional TODO use cases
+     */
     public TodoController(TodoService service) {
         this.service = service;
     }
 
+    /**
+     * Returns one server-filtered and server-sorted page of active TODOs.
+     *
+     * @param page zero-based page number
+     * @param size page size from 1 to 100
+     * @param status optional exact status filter
+     * @param priority optional exact priority filter
+     * @param dueDate optional exact due-date filter
+     * @param blocked optional dependency-state filter
+     * @param name optional case-insensitive partial-name filter
+     * @param sort optional supported sort field
+     * @param direction ascending or descending direction
+     * @return bounded page response
+     */
     @GetMapping
     @ApiResponse(responseCode = "200", description = "Active TODOs returned")
     public PageResponse<TodoResponse> findAll(
@@ -60,6 +83,12 @@ public class TodoController {
         return PageResponse.from(todos);
     }
 
+    /**
+     * Retrieves one active TODO and exposes its version as a strong ETag.
+     *
+     * @param id TODO identifier
+     * @return TODO response with its current ETag
+     */
     @GetMapping("/{id}")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "TODO returned"),
@@ -76,6 +105,12 @@ public class TodoController {
                 .body(TodoResponse.from(todo));
     }
 
+    /**
+     * Creates a TODO after request and lifecycle validation.
+     *
+     * @param request desired TODO fields
+     * @return {@code 201 Created} response with location and initial ETag
+     */
     @PostMapping
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "TODO created"),
@@ -105,6 +140,14 @@ public class TodoController {
                 .body(created);
     }
 
+    /**
+     * Replaces editable fields when the supplied ETag matches the current version.
+     *
+     * @param id TODO identifier
+     * @param ifMatch strong ETag from the latest representation
+     * @param request replacement fields
+     * @return updated TODO and new ETag
+     */
     @PutMapping("/{id}")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "TODO updated"),
@@ -156,6 +199,13 @@ public class TodoController {
                 .body(TodoResponse.from(updated));
     }
 
+    /**
+     * Soft-deletes a TODO when the supplied ETag is current.
+     *
+     * @param id TODO identifier
+     * @param ifMatch strong ETag from the latest representation
+     * @return empty {@code 204 No Content} response
+     */
     @DeleteMapping("/{id}")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "TODO soft-deleted"),
@@ -184,6 +234,13 @@ public class TodoController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Parses the required strong numeric ETag used as an explicit write precondition.
+     *
+     * @param ifMatch raw {@code If-Match} header
+     * @return expected entity version
+     * @throws TodoRuleViolationException when the header is missing or malformed
+     */
     private long requiredVersion(String ifMatch) {
         if (ifMatch == null || ifMatch.isBlank()) {
             throw new TodoRuleViolationException(
@@ -202,6 +259,7 @@ public class TodoController {
         }
     }
 
+    /** @return a standard error for a malformed {@code If-Match} header */
     private TodoRuleViolationException invalidIfMatch() {
         return new TodoRuleViolationException(
                 HttpStatus.BAD_REQUEST,
@@ -210,6 +268,10 @@ public class TodoController {
         );
     }
 
+    /**
+     * @param version entity version
+     * @return quoted strong ETag
+     */
     private String entityTag(long version) {
         return "\"" + version + "\"";
     }

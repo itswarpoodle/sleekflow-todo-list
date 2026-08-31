@@ -25,6 +25,22 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
      * Applies optional filters and domain-aware sorting in PostgreSQL. Boolean flags
      * distinguish an omitted filter from the non-null placeholder values required by
      * JPQL, and the final ID ordering keeps page boundaries stable when values tie.
+     *
+     * @param filterStatus whether to apply {@code status}
+     * @param status status value or an ignored non-null placeholder
+     * @param filterPriority whether to apply {@code priority}
+     * @param priority priority value or an ignored non-null placeholder
+     * @param filterDueDate whether to apply {@code dueDate}
+     * @param dueDate due date or an ignored non-null placeholder
+     * @param filterBlocked whether to apply dependency-state filtering
+     * @param blocked requested dependency state
+     * @param filterName whether to apply partial-name matching
+     * @param name normalized search text
+     * @param sortField whitelisted domain sort field
+     * @param direction normalized {@code asc} or {@code desc}
+     * @param completedStatus completed status used by the blocked subquery
+     * @param pageable bounded page request
+     * @return matching active TODO page without eagerly loading dependencies
      */
     @Query(
             value = """
@@ -108,16 +124,46 @@ public interface TodoRepository extends JpaRepository<Todo, UUID> {
             Pageable pageable
     );
 
+    /**
+     * Hydrates dependencies for the IDs already selected into a bounded page.
+     *
+     * @param ids TODO identifiers from the page query
+     * @return hydrated aggregates
+     */
     @EntityGraph(attributePaths = "dependencies")
     @Query("SELECT DISTINCT todo FROM Todo todo WHERE todo.id IN :ids")
     List<Todo> findWithDependenciesByIdIn(@Param("ids") Collection<UUID> ids);
 
+    /**
+     * Retrieves one active TODO with its dependencies.
+     *
+     * @param id TODO identifier
+     * @return active aggregate, or empty when absent or soft-deleted
+     */
     @EntityGraph(attributePaths = "dependencies")
     Optional<Todo> findByIdAndDeletedAtIsNull(UUID id);
 
+    /**
+     * Resolves dependency candidates while excluding soft-deleted rows.
+     *
+     * @param ids requested dependency identifiers
+     * @return matching active TODOs
+     */
     List<Todo> findAllByIdInAndDeletedAtIsNull(Collection<UUID> ids);
 
+    /**
+     * Checks the database guard that permits only one generated successor per source.
+     *
+     * @param previousOccurrenceId source occurrence identifier
+     * @return whether its successor already exists
+     */
     boolean existsByPreviousOccurrenceId(UUID previousOccurrenceId);
 
+    /**
+     * Retrieves a generated successor by its source occurrence.
+     *
+     * @param previousOccurrenceId source occurrence identifier
+     * @return generated successor, if present
+     */
     Optional<Todo> findByPreviousOccurrenceId(UUID previousOccurrenceId);
 }

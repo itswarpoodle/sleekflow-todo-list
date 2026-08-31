@@ -35,6 +35,13 @@ public class TodoService {
     private final TodoLifecycleService lifecycle;
     private final TodoEventStream events;
 
+    /**
+     * Creates the transactional TODO application service.
+     *
+     * @param repository TODO persistence operations
+     * @param lifecycle cross-TODO validation and recurrence normalization
+     * @param events after-commit browser invalidations
+     */
     public TodoService(TodoRepository repository, TodoLifecycleService lifecycle, TodoEventStream events) {
         this.repository = repository;
         this.lifecycle = lifecycle;
@@ -44,6 +51,18 @@ public class TodoService {
     /**
      * Returns one bounded page. The first query keeps pagination cheap; the second
      * hydrates dependencies only for IDs already selected into that page.
+     *
+     * @param page zero-based page number
+     * @param size page size from 1 to 100
+     * @param status optional exact status filter
+     * @param priority optional exact priority filter
+     * @param dueDate optional exact due-date filter
+     * @param blocked optional dependency-state filter
+     * @param name optional case-insensitive partial name
+     * @param sort optional supported sort field
+     * @param direction ascending or descending direction
+     * @return hydrated active TODO page
+     * @throws TodoRuleViolationException for invalid pagination or sorting
      */
     @Transactional(readOnly = true)
     public Page<Todo> findAll(
@@ -89,11 +108,30 @@ public class TodoService {
         return new PageImpl<>(hydrated, pageable, result.getTotalElements());
     }
 
+    /**
+     * Retrieves one active TODO with its dependencies.
+     *
+     * @param id TODO identifier
+     * @return active aggregate
+     * @throws TodoNotFoundException when absent or soft-deleted
+     */
     @Transactional(readOnly = true)
     public Todo findById(UUID id) {
         return findActive(id);
     }
 
+    /**
+     * Creates a validated TODO and schedules an invalidation after commit.
+     *
+     * @param name display name
+     * @param description optional description
+     * @param dueDate optional calendar due date
+     * @param status optional initial status, defaulting to not started
+     * @param priority optional priority, defaulting to medium
+     * @param dependencyIds requested prerequisite identifiers
+     * @param recurrenceRule optional API recurrence rule
+     * @return persisted aggregate
+     */
     @Transactional
     public Todo create(
             String name,
@@ -128,6 +166,19 @@ public class TodoService {
      * Updates a TODO and creates the next recurring occurrence only on its first
      * transition to COMPLETED. Optimistic locking and the database uniqueness guard
      * make competing completion requests fail safely instead of creating duplicates.
+     *
+     * @param id TODO identifier
+     * @param expectedVersion version supplied through {@code If-Match}
+     * @param name replacement display name
+     * @param description replacement description
+     * @param dueDate replacement due date
+     * @param status replacement status
+     * @param priority replacement priority
+     * @param dependencyIds replacement prerequisite identifiers
+     * @param recurrenceRule replacement recurrence rule
+     * @return updated aggregate
+     * @throws TodoNotFoundException when the TODO is absent or soft-deleted
+     * @throws TodoRuleViolationException when the version or lifecycle rules reject the update
      */
     @Transactional
     public Todo update(
@@ -166,6 +217,11 @@ public class TodoService {
 
     /**
      * Marks a TODO as deleted while retaining its row for audit and recovery.
+     *
+     * @param id TODO identifier
+     * @param expectedVersion version supplied through {@code If-Match}
+     * @throws TodoNotFoundException when the TODO is absent or already soft-deleted
+     * @throws TodoRuleViolationException when the supplied version is stale
      */
     @Transactional
     public void delete(UUID id, long expectedVersion) {
@@ -175,11 +231,13 @@ public class TodoService {
         events.publishAfterCommit(TodoChangeEvent.Type.DELETED, todo);
     }
 
+    /** @return active aggregate or a domain-specific not-found exception */
     private Todo findActive(UUID id) {
         return repository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TodoNotFoundException(id));
     }
 
+    /** Verifies the explicit HTTP precondition before any mutation occurs. */
     private void verifyVersion(Todo todo, long expectedVersion) {
         if (todo.version() != expectedVersion) {
             throw new TodoRuleViolationException(
@@ -190,10 +248,12 @@ public class TodoService {
         }
     }
 
+    /** @return trimmed description, or {@code null} when blank */
     private String normalizeDescription(String description) {
         return description == null || description.isBlank() ? null : description.trim();
     }
 
+    /** Enforces the bounded page contract before querying PostgreSQL. */
     private void validatePage(int page, int size) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new TodoRuleViolationException(
@@ -204,6 +264,7 @@ public class TodoService {
         }
     }
 
+    /** @return whitelisted sort field, defaulting to creation time */
     private String normalizeSortField(String sort) {
         if (sort == null || sort.isBlank()) {
             return "createdAt";
@@ -218,6 +279,7 @@ public class TodoService {
         return sort;
     }
 
+    /** @return lowercase {@code asc} or {@code desc} */
     private String normalizeDirection(String direction) {
         var normalized = direction == null ? "asc" : direction.toLowerCase(Locale.ROOT);
         if (!normalized.equals("asc") && !normalized.equals("desc")) {

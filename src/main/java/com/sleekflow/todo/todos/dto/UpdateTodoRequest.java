@@ -10,6 +10,17 @@ import java.time.LocalDate;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Full replacement contract for editable TODO fields.
+ *
+ * @param name required display name
+ * @param description optional supporting detail
+ * @param dueDate optional calendar due date
+ * @param status required lifecycle status
+ * @param priority required domain priority
+ * @param dependencyIds desired prerequisite identifiers
+ * @param recurrence optional recurrence rule
+ */
 public record UpdateTodoRequest(
         @NotBlank(message = "Name is required")
         @Size(max = 120, message = "Name must be 120 characters or fewer")

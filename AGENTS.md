@@ -83,6 +83,7 @@
 - Prefer comments that explain why a rule exists or how a contract behaves.
 - Do not comment every line, restate readable code, or add documentation solely to increase comment count.
 - Keep Javadocs and inline comments concise, human-readable, and immediately useful to reviewers.
+- Keep production Java types and declared methods covered by warning-free Javadocs.
 - Use clear domain language instead of framework jargon where possible.
 - Update the README when setup steps, commands, API behaviour, or user workflows change.
 - Keep comments accurate when implementation changes; stale documentation is a defect.
@@ -102,6 +103,7 @@
 ## Testing expectations
 
 - Run `./mvnw verify` for the full backend build and PostgreSQL-backed integration suite.
+- Run `./mvnw -DskipTests javadoc:javadoc` to validate production Java documentation.
 - Run `npm test -- --run` from `frontend/` for frontend behaviour.
 - Run `npm run build` from `frontend/` before handoff or commit.
 - Run `git diff --check` before committing.

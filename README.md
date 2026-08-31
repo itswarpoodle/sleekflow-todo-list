@@ -170,6 +170,12 @@ Run the backend build and PostgreSQL-backed integration suite:
 ./mvnw verify
 ```
 
+Validate the production Java API documentation and generate browsable Javadocs in `target/site/apidocs/`:
+
+```shell
+./mvnw -DskipTests javadoc:javadoc
+```
+
 Run the frontend component tests and production build:
 
 ```shell

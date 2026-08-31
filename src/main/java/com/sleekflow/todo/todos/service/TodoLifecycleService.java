@@ -26,6 +26,11 @@ public class TodoLifecycleService {
 
     private final TodoRepository repository;
 
+    /**
+     * Creates the cross-TODO lifecycle validator.
+     *
+     * @param repository dependency lookup and graph persistence access
+     */
     public TodoLifecycleService(TodoRepository repository) {
         this.repository = repository;
     }
@@ -34,6 +39,11 @@ public class TodoLifecycleService {
      * Resolves active dependencies and permits an existing soft-deleted dependency
      * to remain attached. This keeps a dependent TODO editable or archivable without
      * allowing new references to deleted records.
+     *
+     * @param todo aggregate being updated, or {@code null} during creation
+     * @param dependencyIds requested prerequisite identifiers
+     * @return deterministic validated dependency set
+     * @throws TodoRuleViolationException for self-references or unavailable dependencies
      */
     public Set<Todo> resolveDependencies(Todo todo, Set<UUID> dependencyIds) {
         var requestedIds = dependencyIds == null ? Set.<UUID>of() : dependencyIds;
@@ -73,6 +83,11 @@ public class TodoLifecycleService {
 
     /**
      * Validates dependency changes before the aggregate is mutated.
+     *
+     * @param todo aggregate being updated
+     * @param dependencies proposed prerequisites
+     * @param status proposed status
+     * @throws TodoRuleViolationException for a cycle or blocked status transition
      */
     public void validateUpdate(Todo todo, Collection<Todo> dependencies, Todo.Status status) {
         if (dependencies.stream().anyMatch(dependency -> reaches(dependency, todo.id()))) {
@@ -85,6 +100,14 @@ public class TodoLifecycleService {
         validateStatus(status, dependencies);
     }
 
+    /**
+     * Prevents incomplete prerequisites from being bypassed through either progress
+     * or direct completion. Not-started edits and archiving remain permitted.
+     *
+     * @param status proposed status
+     * @param dependencies proposed prerequisites
+     * @throws TodoRuleViolationException when the proposed status requires completed dependencies
+     */
     public void validateStatus(Todo.Status status, Collection<Todo> dependencies) {
         if ((status == Todo.Status.IN_PROGRESS || status == Todo.Status.COMPLETED)
                 && isBlocked(dependencies)) {
@@ -100,6 +123,10 @@ public class TodoLifecycleService {
      * Rejects newly assigned past dates while allowing an overdue TODO to keep its
      * existing date. Without that exception, overdue work could not be completed,
      * archived, or otherwise edited unless it was first rescheduled.
+     *
+     * @param dueDate proposed due date
+     * @param existingDueDate current due date, or {@code null} during creation
+     * @throws TodoRuleViolationException when a newly assigned date is in the past
      */
     public void validateDueDate(LocalDate dueDate, LocalDate existingDueDate) {
         if (dueDate != null && dueDate.isBefore(LocalDate.now()) && !dueDate.equals(existingDueDate)) {
@@ -114,6 +141,11 @@ public class TodoLifecycleService {
     /**
      * Converts the API recurrence shape into the canonical domain representation.
      * Named schedules always mean one unit; only CUSTOM accepts an interval and unit.
+     *
+     * @param rule API recurrence rule, or {@code null}
+     * @param dueDate proposed TODO due date
+     * @return canonical recurrence, or {@code null}
+     * @throws TodoRuleViolationException when the schedule is incomplete or inconsistent
      */
     public Todo.Recurrence normalizeRecurrence(RecurrenceRule rule, LocalDate dueDate) {
         if (rule == null) {
@@ -134,6 +166,7 @@ public class TodoLifecycleService {
         };
     }
 
+    /** Validates and canonicalizes a named one-unit recurrence. */
     private Todo.Recurrence standardRecurrence(
             RecurrenceRule rule,
             int interval,
@@ -146,6 +179,7 @@ public class TodoLifecycleService {
         return new Todo.Recurrence(rule.frequency(), interval, unit);
     }
 
+    /** Validates and canonicalizes a caller-defined recurrence interval. */
     private Todo.Recurrence customRecurrence(RecurrenceRule rule) {
         if (rule.interval() == null || rule.interval() <= 0 || rule.unit() == null) {
             throw invalidRecurrence("Custom recurrence requires a positive interval and unit");
@@ -153,14 +187,20 @@ public class TodoLifecycleService {
         return new Todo.Recurrence(rule.frequency(), rule.interval(), rule.unit());
     }
 
+    /** @return a consistently coded invalid-recurrence exception */
     private TodoRuleViolationException invalidRecurrence(String message) {
         return new TodoRuleViolationException(HttpStatus.BAD_REQUEST, "INVALID_RECURRENCE", message);
     }
 
+    /** @return whether any prerequisite lacks a recorded completed status */
     private boolean isBlocked(Collection<Todo> dependencies) {
         return dependencies.stream().anyMatch(dependency -> dependency.status() != Todo.Status.COMPLETED);
     }
 
+    /**
+     * Traverses dependency edges to detect whether {@code start} already reaches
+     * the proposed dependent, which would close a direct or transitive cycle.
+     */
     private boolean reaches(Todo start, UUID targetId) {
         // Iterative traversal avoids call-stack growth for long dependency chains.
         var pending = new ArrayDeque<Todo>();

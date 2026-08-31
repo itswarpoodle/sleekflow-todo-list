@@ -18,9 +18,23 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Converts framework and domain exceptions into the API's consistent error envelope.
+ */
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    /** Creates the stateless global exception handler. */
+    public ApiExceptionHandler() {
+    }
+
+    /**
+     * Reports database-level races that occur after optimistic checks or uniqueness validation.
+     *
+     * @param exception persistence exception raised by the losing request
+     * @param request current HTTP request
+     * @return conflict response instructing the caller to reload
+     */
     @ExceptionHandler({ObjectOptimisticLockingFailureException.class, DataIntegrityViolationException.class})
     ResponseEntity<ApiErrorResponse> handleConcurrentModification(
             RuntimeException exception,
@@ -35,6 +49,13 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Preserves the status and stable code chosen by a lifecycle rule.
+     *
+     * @param exception rejected domain operation
+     * @param request current HTTP request
+     * @return rule-specific error response
+     */
     @ExceptionHandler(TodoRuleViolationException.class)
     ResponseEntity<ApiErrorResponse> handleRuleViolation(
             TodoRuleViolationException exception,
@@ -49,6 +70,13 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Maps reads or mutations of absent active TODOs to {@code 404}.
+     *
+     * @param exception missing-resource exception
+     * @param request current HTTP request
+     * @return not-found response
+     */
     @ExceptionHandler(TodoNotFoundException.class)
     ResponseEntity<ApiErrorResponse> handleNotFound(
             TodoNotFoundException exception,
@@ -63,6 +91,13 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Collects bean-validation failures by field while retaining the first useful message.
+     *
+     * @param exception validation failure raised while binding the request body
+     * @param request current HTTP request
+     * @return bad-request response containing field errors
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiErrorResponse> handleValidation(
             MethodArgumentNotValidException exception,
@@ -85,6 +120,13 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Handles malformed JSON, enum values, dates, and path or query parameter types.
+     *
+     * @param exception request parsing failure
+     * @param request current HTTP request
+     * @return generic invalid-request response
+     */
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
     ResponseEntity<ApiErrorResponse> handleInvalidRequest(Exception exception, HttpServletRequest request) {
         return response(
@@ -96,6 +138,9 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Creates one consistently shaped error response.
+     */
     private ResponseEntity<ApiErrorResponse> response(
             HttpStatus status,
             String code,
