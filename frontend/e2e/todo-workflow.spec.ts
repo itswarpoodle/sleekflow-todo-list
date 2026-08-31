@@ -6,6 +6,13 @@ type Todo = {
   version: number
 }
 
+function localDateOffset(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 async function createTodo(request: APIRequestContext, name: string) {
   const response = await request.post('/api/todos', { data: { name } })
   expect(response.ok()).toBeTruthy()
@@ -74,7 +81,7 @@ test('runs the cumulative core workflow in the browser', async ({ page, request 
     await page.getByRole('button', { name: 'New TODO' }).click()
     editor = page.getByRole('dialog')
     await editor.getByLabel('Name', { exact: true }).fill(recurring)
-    await editor.getByLabel('Due date', { exact: true }).fill('2026-10-01')
+    await editor.getByLabel('Due date', { exact: true }).fill(localDateOffset(31))
     await editor.getByLabel('Recurrence', { exact: true }).selectOption('WEEKLY')
     await editor.getByRole('button', { name: 'Create TODO' }).click()
     editor = await openEditor(page, recurring)
@@ -94,6 +101,21 @@ test('runs the cumulative core workflow in the browser', async ({ page, request 
   } finally {
     await cleanup(request, prefix)
   }
+})
+
+test('prevents assigning a past due date', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New TODO' }).click()
+  const editor = page.getByRole('dialog')
+  const dueDate = editor.getByLabel('Due date', { exact: true })
+
+  await expect(dueDate).toHaveAttribute('min', localDateOffset(0))
+  await editor.getByLabel('Name', { exact: true }).fill('E2E invalid past date')
+  await dueDate.fill(localDateOffset(-1))
+  await editor.getByRole('button', { name: 'Create TODO' }).click()
+
+  await expect(editor.getByText('Due date must be today or later.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'E2E invalid past date' })).toHaveCount(0)
 })
 
 test('synchronizes committed changes across two browser tabs', async ({ page, context, request }) => {

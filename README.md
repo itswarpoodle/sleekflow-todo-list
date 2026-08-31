@@ -5,6 +5,7 @@ A Java 21 and Spring Boot API with a deliberately small React and TypeScript cli
 ## What is included
 
 - Complete TODO CRUD with name, description, due date, status, and priority
+- Future-only due-date assignment in both the UI and API
 - Daily, weekly, monthly, and custom recurrence
 - Automatic successor creation when recurring work is completed
 - Multiple dependencies with cycle detection and blocked-state enforcement
@@ -18,9 +19,11 @@ A Java 21 and Spring Boot API with a deliberately small React and TypeScript cli
 - Production-style Docker images, GitHub Actions verification, and Playwright workflows
 
 ## Architecture
+
 For a breakdown of the architecture and knowledge graph, please refer to these supplementary docs:
-- `docs/architecture.md` 
-- `graphify-out/...` 
+
+- [docs/architecture.md](docs/architecture.md)
+- [graphify-out/GRAPH_REPORT.md](graphify-out/GRAPH_REPORT.md)
 
 ## Prerequisites
 
@@ -131,7 +134,7 @@ Run `scripts/demo-data.sql` again whenever the demo needs to return to its initi
 | `DELETE` | `/api/todos/{id}` | Soft-deletes when `If-Match` is current and returns `204` |
 | `GET` | `/api/todos/events` | Streams committed change invalidations with SSE |
 
-Names are required. Descriptions and due dates are optional. Create requests default to `NOT_STARTED` and `MEDIUM` when status and priority are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads. `ARCHIVED` is visible and is not deletion.
+Names are required. Descriptions and due dates are optional. A newly assigned due date must be today or later; the UI limits the date picker and the API rejects bypass attempts with `TODO_DUE_DATE_IN_PAST`. An existing overdue TODO may retain its original date so it can still be completed, archived, or otherwise edited without forced rescheduling. Create requests default to `NOT_STARTED` and `MEDIUM` when status and priority are omitted. Update requests require both fields. Deleted rows are retained with a deletion timestamp but excluded from normal reads. `ARCHIVED` is visible and is not deletion.
 
 Create and update requests accept a `dependencyIds` array. Responses return those IDs and a derived `blocked` flag. Dependencies must reference active TODOs, cannot reference the TODO itself, and cannot form a direct or transitive cycle. A TODO with any dependency that is not `COMPLETED` cannot move to `IN_PROGRESS`.
 
@@ -185,7 +188,7 @@ npm run test:e2e
 
 Playwright starts the source backend and frontend when `E2E_BASE_URL` is absent. To exercise an already running production-style stack, use `E2E_BASE_URL=http://localhost:5173 npm run test:e2e`.
 
-The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD, defaults, validation, error envelopes, durable deletion, missing resources, multiple dependencies, cycle rejection, blocked transitions, all recurrence schedules, repeat and concurrent completion, explicit version preconditions, committed SSE publication, filters, name search, domain sorting, stable pagination, the 10,000-row path, index use, and the published OpenAPI contract. Playwright covers the cumulative core workflow, two-tab synchronization, and stale-editor recovery.
+The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD, defaults, future-only due-date assignment, overdue editing, validation, error envelopes, durable deletion, missing resources, multiple dependencies, cycle rejection, blocked transitions, all recurrence schedules, repeat and concurrent completion, explicit version preconditions, committed SSE publication, filters, name search, domain sorting, stable pagination, the 10,000-row path, index use, and the published OpenAPI contract. Playwright covers the cumulative core workflow, browser enforcement of future-only due dates, two-tab synchronization, and stale-editor recovery.
 
 ## Repository guide
 

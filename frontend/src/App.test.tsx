@@ -36,6 +36,13 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
+function localDateOffset(days: number) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -137,6 +144,24 @@ test('creates a recurring TODO with a dependency', async () => {
     dependencyIds: ['todo-1'],
     recurrence: { frequency: 'WEEKLY' },
   }))
+})
+
+test('prevents assigning a past due date in the editor', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(todoPage([])))
+
+  render(<App />)
+  await screen.findByText('The list is ready for its first TODO.')
+  fireEvent.click(screen.getByRole('button', { name: 'New TODO' }))
+
+  const editor = screen.getByRole('dialog')
+  const dueDate = within(editor).getByLabelText('Due date')
+  expect(dueDate).toHaveAttribute('min', localDateOffset(0))
+  fireEvent.change(within(editor).getByLabelText('Name'), { target: { value: 'Past TODO' } })
+  fireEvent.change(dueDate, { target: { value: localDateOffset(-1) } })
+  fireEvent.click(within(editor).getByRole('button', { name: 'Create TODO' }))
+
+  expect(await within(editor).findByText('Due date must be today or later.')).toBeInTheDocument()
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 })
 
 test('sends filter and sort choices to the paged API', async () => {

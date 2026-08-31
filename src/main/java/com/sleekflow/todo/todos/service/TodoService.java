@@ -105,6 +105,7 @@ public class TodoService {
             RecurrenceRule recurrenceRule
     ) {
         var effectiveStatus = status == null ? Todo.Status.NOT_STARTED : status;
+        lifecycle.validateDueDate(dueDate, null);
         var dependencies = lifecycle.resolveDependencies(null, dependencyIds);
         lifecycle.validateStatus(effectiveStatus, dependencies);
         var recurrence = lifecycle.normalizeRecurrence(recurrenceRule, dueDate);
@@ -142,6 +143,7 @@ public class TodoService {
     ) {
         var todo = findActive(id);
         verifyVersion(todo, expectedVersion);
+        lifecycle.validateDueDate(dueDate, todo.dueDate());
         var previousStatus = todo.status();
         var dependencies = lifecycle.resolveDependencies(id, dependencyIds);
         lifecycle.validateUpdate(todo, dependencies, status);

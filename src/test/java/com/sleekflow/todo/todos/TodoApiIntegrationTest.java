@@ -312,6 +312,55 @@ class TodoApiIntegrationTest {
     }
 
     @Test
+    void rejectsNewPastDueDatesButKeepsExistingOverdueTodosEditable() throws Exception {
+        var today = LocalDate.now();
+        var yesterday = today.minusDays(1);
+
+        mockMvc.perform(post("/api/todos")
+                        .contentType("application/json")
+                        .content("""
+                                {"name":"Invalid past due date","dueDate":"%s"}
+                                """.formatted(yesterday)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TODO_DUE_DATE_IN_PAST"))
+                .andExpect(jsonPath("$.message").value("Due date must be today or later"));
+
+        String id = createTodo("""
+                {"name":"Becomes overdue","dueDate":"%s"}
+                """.formatted(today));
+        jdbcTemplate.update("UPDATE todos SET due_date = ? WHERE id = ?", yesterday, UUID.fromString(id));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(id))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Complete overdue work",
+                                  "dueDate":"%s",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM"
+                                }
+                                """.formatted(yesterday)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dueDate").value(yesterday.toString()))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        mockMvc.perform(put("/api/todos/{id}", id)
+                        .header(HttpHeaders.IF_MATCH, currentEtag(id))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "name":"Move further into the past",
+                                  "dueDate":"%s",
+                                  "status":"COMPLETED",
+                                  "priority":"MEDIUM"
+                                }
+                                """.formatted(yesterday.minusDays(1))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TODO_DUE_DATE_IN_PAST"));
+    }
+
+    @Test
     void returnsNotFoundForEverySingleTodoOperation() throws Exception {
         var missingId = UUID.randomUUID();
 

@@ -8,7 +8,7 @@ I treated the required features, non-functional requirements, and deliverables a
 
 **Archived and deleted are separate concepts.** `ARCHIVED` is a required visible status. Delete sets `deleted_at`, retains the row, and excludes it from normal API and UI reads. This satisfies the data-retention requirement without making deleted work look like ordinary archived work.
 
-**Due dates are calendar dates.** The brief asks for a due date, not a deadline or reminder time. I used Java `LocalDate` and PostgreSQL `DATE`, avoiding timezone shifts and matching what the UI displays.
+**Due dates are calendar dates.** The brief asks for a due date, not a deadline or reminder time. I used Java `LocalDate` and PostgreSQL `DATE`, avoiding timezone shifts and matching what the UI displays. User-assigned dates must be today or later, while an existing overdue date may remain unchanged so overdue work does not become uneditable.
 
 **Recurrence is completion-driven.** The required trigger is marking a recurring TODO complete, so I did not add a scheduler. Daily, weekly, and monthly mean an interval of one. Custom recurrence requires a positive interval and a unit of days, weeks, or months. Calendar arithmetic safely handles month ends. The successor copies the task content, recurrence, priority, and dependencies, starts as `NOT_STARTED`, and links to its source through `previousOccurrenceId`.
 
@@ -45,6 +45,8 @@ I treated the required features, non-functional requirements, and deliverables a
 **Architecture diagram.** This is explicitly optional. I created it last so it describes the verified system rather than an aspirational design. It gives a reviewer a fast map from browser requests through Nginx, controllers, service transactions, PostgreSQL, and committed SSE events, which makes the implementation easier to navigate and discuss.
 
 **Reviewer and demo hardening.** The deterministic demo dataset, checked-in OpenAPI snapshot, health endpoint, five-minute demo route, accessible interaction states, and plain-language error messages go beyond the minimum feature list. They reduce demo variability, support offline review, and make failure states understandable instead of showing only a happy path. I kept them small because their purpose is confidence and communication, not product expansion.
+
+**Future-only due-date assignment.** This is an additional product-integrity improvement rather than a core requirement. The date picker disables dates before today, and the API independently rejects newly assigned past dates so direct callers cannot bypass the UI. This prevents contradictory planning data and gives immediate, readable feedback. Existing overdue TODOs may keep their original date, preserving honest history and allowing users to complete or archive them without forced rescheduling.
 
 ## 3. What I chose not to build and why
 

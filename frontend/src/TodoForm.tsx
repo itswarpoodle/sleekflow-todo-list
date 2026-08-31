@@ -10,6 +10,12 @@ import type {
 } from './types'
 import { priorityLabels, statusLabels } from './types'
 
+function currentLocalDate() {
+  const now = new Date()
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 type TodoFormProps = {
   todo: Todo | null
   availableDependencies: Todo[]
@@ -42,6 +48,8 @@ export default function TodoForm({
   const [interval, setInterval] = useState(todo?.recurrence?.interval.toString() || '1')
   const [unit, setUnit] = useState<RecurrenceUnit>(todo?.recurrence?.unit || 'DAYS')
   const [clientError, setClientError] = useState<string | null>(null)
+  const [today] = useState(currentLocalDate)
+  const originalDueDate = todo?.dueDate || ''
 
   // A TODO cannot depend on itself. Candidate matching is server-backed so the
   // selector remains useful when the shared list contains thousands of TODOs.
@@ -63,6 +71,10 @@ export default function TodoForm({
     }
     if (frequency && !dueDate) {
       setClientError('A recurring TODO needs a due date.')
+      return
+    }
+    if (dueDate && dueDate < today && dueDate !== originalDueDate) {
+      setClientError('Due date must be today or later.')
       return
     }
     if (frequency === 'CUSTOM' && Number(interval) < 1) {
@@ -88,7 +100,7 @@ export default function TodoForm({
   }
 
   return (
-    <form className="todo-form" onSubmit={submit}>
+    <form className="todo-form" noValidate onSubmit={submit}>
       <div className="editor-heading">
         <div>
           <p className="editor-context">{todo ? 'Edit TODO' : 'New TODO'}</p>
@@ -139,7 +151,18 @@ export default function TodoForm({
       <div className="form-grid">
         <div className="field">
           <label htmlFor="todo-due-date">Due date</label>
-          <input id="todo-due-date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
+          <input
+            id="todo-due-date"
+            min={today}
+            onChange={(event) => setDueDate(event.target.value)}
+            type="date"
+            value={dueDate}
+          />
+          <small className="field-hint">
+            {originalDueDate && originalDueDate < today
+              ? 'Choose today or later, or keep the existing overdue date.'
+              : 'Choose today or a future date.'}
+          </small>
         </div>
         <div className="field">
           <label htmlFor="todo-priority">Priority</label>

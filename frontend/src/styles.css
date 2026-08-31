@@ -617,6 +617,11 @@ h1 {
   color: #913b37;
 }
 
+.field-hint {
+  color: #73746f;
+  line-height: 1.4;
+}
+
 .dependencies-fieldset {
   min-width: 0;
   margin: 0;

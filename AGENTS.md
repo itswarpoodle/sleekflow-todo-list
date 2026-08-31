@@ -55,7 +55,7 @@
 - Keep PostgreSQL-backed backend integration tests in `src/test/java/`.
 - Keep React components, API access, shared types, styling, and component tests in `frontend/src/`.
 - Keep `README.md` as the reviewer's entry point for setup, local development, API behaviour, and verification commands.
-- Keep `decision-log.md` empty until M6 decision-log work begins.
+- Keep `decision-log.md` aligned with the implementation and explicit about optional enhancements and their value.
 
 ## Coding conventions
 
@@ -69,6 +69,7 @@
 - Preserve bounded pagination and stable tie-break ordering for list queries.
 - Preserve calendar-safe recurrence calculations and exactly-one successor creation.
 - Preserve dependency validation for missing, self-referencing, and cyclic dependencies.
+- Reject newly assigned past due dates while allowing existing overdue dates to remain unchanged.
 - Preserve the rule that blocked TODOs cannot move to `IN_PROGRESS`.
 - Preserve optimistic locking and the database uniqueness guard for concurrent recurring completion.
 - Validate at system boundaries and return consistent, useful error responses.
@@ -104,7 +105,7 @@
 - Run `npm run build` from `frontend/` before handoff or commit.
 - Run `git diff --check` before committing.
 - Test meaningful core behaviour and edge cases rather than chasing superficial coverage.
-- Cover CRUD, validation, soft deletion, dependencies, cycle rejection, blocked transitions, recurrence dates, repeated and concurrent completion, filtering, sorting, and pagination.
+- Cover CRUD, future-only due-date assignment, overdue editing, validation, soft deletion, dependencies, cycle rejection, blocked transitions, recurrence dates, repeated and concurrent completion, filtering, sorting, and pagination.
 - Keep large-list verification representative of at least 10,000 TODOs.
 - Test every completed milestone in a real browser.
 - Make browser testing cumulative: completing a later milestone must regress earlier milestone workflows.
@@ -142,6 +143,7 @@
 - The list remains bounded and usable for 10,000 or more TODOs.
 - Swagger/OpenAPI and README instructions are accurate and reviewer-friendly.
 - The M6 decision log answers all four required questions.
+- Every implemented optional enhancement is identified in the decision log with its rationale and added value.
 - Linear reflects the real milestone state.
 - No optional work is included without explicit approval.
 - The final working tree contains only intentional, reviewable files.

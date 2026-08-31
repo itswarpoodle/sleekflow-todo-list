@@ -88,6 +88,21 @@ public class TodoLifecycleService {
     }
 
     /**
+     * Rejects newly assigned past dates while allowing an overdue TODO to keep its
+     * existing date. Without that exception, overdue work could not be completed,
+     * archived, or otherwise edited unless it was first rescheduled.
+     */
+    public void validateDueDate(LocalDate dueDate, LocalDate existingDueDate) {
+        if (dueDate != null && dueDate.isBefore(LocalDate.now()) && !dueDate.equals(existingDueDate)) {
+            throw new TodoRuleViolationException(
+                    HttpStatus.BAD_REQUEST,
+                    "TODO_DUE_DATE_IN_PAST",
+                    "Due date must be today or later"
+            );
+        }
+    }
+
+    /**
      * Converts the API recurrence shape into the canonical domain representation.
      * Named schedules always mean one unit; only CUSTOM accepts an interval and unit.
      */
