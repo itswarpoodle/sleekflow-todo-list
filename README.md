@@ -17,6 +17,11 @@ A Java 21 and Spring Boot API with a deliberately small React and TypeScript cli
 - Swagger UI, a checked-in OpenAPI snapshot, deterministic demo data, and integration tests
 - Production-style Docker images, GitHub Actions verification, and Playwright workflows
 
+## Architecture
+For a breakdown of the architecture and knowledge graph, please refer to these supplementary docs:
+- `docs/architecture.md` 
+- `graphify-out/...` 
+
 ## Prerequisites
 
 - Java 21
@@ -199,4 +204,4 @@ The backend suite uses an isolated PostgreSQL 18.6 Testcontainer. It covers CRUD
 
 ## AI assistance
 
-AI coding tools were used during planning, implementation, documentation, and verification. All generated changes were reviewed against the assessment brief, exercised through automated tests, and tested through the browser before handoff.
+AI coding tools were used during planning, implementation, documentation, and verification. All generated changes were reviewed against the assessment brief, exercised through automated tests, and tested through the browser before handoff. The instruction set is in the root directory titled `AGENTS.md`.
